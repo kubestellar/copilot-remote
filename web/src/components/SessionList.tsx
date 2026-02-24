@@ -135,7 +135,7 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
                 </Box>
               ) : (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Text sx={{ fontSize: 1, fontWeight: session.id === activeId ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                  <Text sx={{ fontSize: 0, fontWeight: session.id === activeId ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                     {displayName(session)}
                   </Text>
                   <Box
@@ -148,8 +148,8 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
                   </Box>
                 </Box>
               )}
-              <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Label variant={session.status === 'running' || session.status === 'active' ? 'success' : 'secondary'} sx={{ fontSize: 0 }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' }}>
+                <Label variant={session.status === 'running' || session.status === 'active' ? 'success' : 'secondary'} sx={{ fontSize: '10px', py: 0, lineHeight: '16px' }}>
                   {statusLabel(session.status)}
                 </Label>
                 {(session.tags || []).map(tag => {
@@ -157,7 +157,7 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
                   return (
                     <Box
                       key={tag}
-                      sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', px: '6px', py: '1px', borderRadius: '12px', fontSize: 0, fontWeight: 600, bg: style.bg, color: style.fg }}
+                      sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', px: '5px', borderRadius: '8px', fontSize: '10px', fontWeight: 600, bg: style.bg, color: style.fg, lineHeight: '16px', flexShrink: 0 }}
                     >
                       {tag}
                       <Box
@@ -165,7 +165,7 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
                         sx={{ bg: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', p: 0, display: 'flex', opacity: 0.7, ':hover': { opacity: 1 } }}
                         onClick={(e: React.MouseEvent) => handleRemoveTag(e, session.id, tag)}
                       >
-                        <XIcon size={10} />
+                        <XIcon size={8} />
                       </Box>
                     </Box>
                   );
@@ -178,20 +178,20 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
                       onKeyDown={e => { if (e.key === 'Enter') handleAddTag(session.id); if (e.key === 'Escape') { setAddingTag(null); setNewTag(''); } }}
                       placeholder="tag"
                       autoFocus
-                      style={{ width: 60, fontSize: 10, padding: '2px 6px', borderRadius: 4, border: '1px solid #444c56', background: '#161b22', color: '#e6edf3' }}
+                      style={{ width: 50, fontSize: 10, padding: '1px 4px', borderRadius: 4, border: '1px solid #444c56', background: '#161b22', color: '#e6edf3' }}
                     />
                   </Box>
                 ) : (
                   <Box
                     as="button"
-                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, display: 'flex', ':hover': { color: 'fg.default' } }}
+                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, display: 'flex', flexShrink: 0, ':hover': { color: 'fg.default' } }}
                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); setAddingTagId(session.id); }}
                     aria-label="Add tag"
                   >
-                    <TagIcon size={12} />
+                    <TagIcon size={10} />
                   </Box>
                 )}
-                <Text sx={{ color: 'fg.muted', fontSize: 0 }}>
+                <Text sx={{ color: 'fg.muted', fontSize: '10px', whiteSpace: 'nowrap', flexShrink: 0 }}>
                   <RelativeTime date={new Date(session.updatedAt)} />
                 </Text>
               </Box>

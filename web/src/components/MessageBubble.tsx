@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Box, Text } from '@primer/react';
 import type { ChatMessage } from '../types';
 import ReactMarkdown from 'react-markdown';
@@ -6,7 +7,7 @@ interface Props {
   message: ChatMessage;
 }
 
-export function MessageBubble({ message }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message }: Props) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
 
@@ -51,4 +52,4 @@ export function MessageBubble({ message }: Props) {
       </Box>
     </Box>
   );
-}
+});

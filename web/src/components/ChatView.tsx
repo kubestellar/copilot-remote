@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { Box, IconButton, Text, Label, Button } from '@primer/react';
 import { PaperAirplaneIcon, SquareIcon, PlayIcon } from '@primer/octicons-react';
 import { MessageBubble } from './MessageBubble';
@@ -26,7 +26,7 @@ export function ChatView({ session, messages, onSend, onResume }: Props) {
   }, [session.id]);
 
   // Auto-scroll to bottom on new messages
-  const allMessages = [...historicalMessages, ...messages];
+  const allMessages = useMemo(() => [...historicalMessages, ...messages], [historicalMessages, messages]);
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -85,7 +85,7 @@ export function ChatView({ session, messages, onSend, onResume }: Props) {
       {/* Session header */}
       <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'border.default', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
         <Box sx={{ flex: 1, overflow: 'hidden' }}>
-          <Text sx={{ fontWeight: 'bold', fontSize: 1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <Text sx={{ fontWeight: 'bold', fontSize: 1, color: 'fg.default', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {session.name || session.summary || session.id.slice(0, 12)}
           </Text>
           <Text sx={{ color: 'fg.muted', fontSize: 0 }}>{session.cwd}</Text>
