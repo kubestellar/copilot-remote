@@ -67,7 +67,7 @@ app.get('/api/sessions/:id', (req, res) => {
   const historical = getSessionDetail(req.params.id);
   if (historical) {
     const messages = getSessionMessages(req.params.id);
-    res.json({ ...historical, name: sessionMeta.name, tags: sessionMeta.tags || [], messages: messages.slice(-200) });
+    res.json({ ...historical, name: sessionMeta.name, tags: sessionMeta.tags || [], messages: messages.slice(-500) });
     return;
   }
   res.status(404).json({ error: 'Session not found' });

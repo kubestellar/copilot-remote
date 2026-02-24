@@ -102,20 +102,26 @@ export function getSessionMessages(sessionId: string): ChatMessage[] {
     for (const line of lines) {
       try {
         const event = JSON.parse(line);
-        if (event.type === 'user.message' && event.data?.content) {
-          messages.push({
-            id: event.id || '',
-            role: 'user',
-            content: event.data.content,
-            timestamp: event.timestamp || event.data?.timestamp || '',
-          });
-        } else if (event.type === 'assistant.message' && event.data?.content) {
-          messages.push({
-            id: event.data.messageId || event.id || '',
-            role: 'copilot',
-            content: event.data.content,
-            timestamp: event.timestamp || '',
-          });
+        if (event.type === 'user.message') {
+          const content = event.data?.content || '';
+          if (content.trim()) {
+            messages.push({
+              id: event.id || '',
+              role: 'user',
+              content,
+              timestamp: event.timestamp || event.data?.timestamp || '',
+            });
+          }
+        } else if (event.type === 'assistant.message') {
+          const content = event.data?.content || '';
+          if (content.trim()) {
+            messages.push({
+              id: event.data.messageId || event.id || '',
+              role: 'copilot',
+              content,
+              timestamp: event.timestamp || '',
+            });
+          }
         }
       } catch {
         // Skip malformed lines

@@ -50,14 +50,14 @@ function processNewLines(sessionId: string, eventsPath: string, callback: Messag
     const event = parseEvent(line);
     if (!event) continue;
 
-    if (event.type === 'user.message' && event.data?.content) {
+    if (event.type === 'user.message' && event.data?.content?.trim()) {
       callback(sessionId, {
         id: event.id || '',
         role: 'user',
         content: event.data.content,
         timestamp: event.timestamp || '',
       });
-    } else if (event.type === 'assistant.message' && event.data?.content) {
+    } else if (event.type === 'assistant.message' && event.data?.content?.trim()) {
       callback(sessionId, {
         id: event.data.messageId || event.id || '',
         role: 'copilot',
