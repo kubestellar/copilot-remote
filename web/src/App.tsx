@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Box, Text } from '@primer/react';
 import { SessionList } from './components/SessionList';
 import { ChatView } from './components/ChatView';
@@ -10,7 +10,9 @@ import { api } from './lib/api';
 import type { WsMessage, ChatMessage } from './types';
 
 export default function App() {
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(
+    () => localStorage.getItem('copilot-remote-active-session')
+  );
   const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
   const [showNewSession, setShowNewSession] = useState(false);
 
@@ -28,9 +30,17 @@ export default function App() {
   const { connected, subscribe, unsubscribe, sendInput } = useWebSocket(handleWsMessage);
   const { sessions, loading, error, refresh, setPaused } = useSessions();
 
+  // Re-subscribe to restored session on mount
+  useEffect(() => {
+    if (activeSessionId && connected) {
+      subscribe(activeSessionId);
+    }
+  }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSelectSession = useCallback((id: string) => {
     if (activeSessionId) unsubscribe(activeSessionId);
     setActiveSessionId(id);
+    localStorage.setItem('copilot-remote-active-session', id);
     subscribe(id);
   }, [activeSessionId, subscribe, unsubscribe]);
 
