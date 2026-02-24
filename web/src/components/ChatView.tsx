@@ -72,7 +72,13 @@ export function ChatView({ session, messages, onSend, onResume }: Props) {
   }, [session.id]);
 
   const isRunning = session.status === 'running';
-  const placeholder = isRunning ? 'Send a message...' : 'Type a message to resume this session...';
+  const isActive = session.status === 'active';
+  const isLive = isRunning || isActive;
+  const placeholder = isRunning
+    ? 'Send a message...'
+    : isActive
+    ? 'This session is active in a terminal. Type to resume a copy...'
+    : 'Type a message to resume this session...';
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative' }}>
@@ -80,12 +86,12 @@ export function ChatView({ session, messages, onSend, onResume }: Props) {
       <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'border.default', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
         <Box sx={{ flex: 1, overflow: 'hidden' }}>
           <Text sx={{ fontWeight: 'bold', fontSize: 1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {session.summary || session.id.slice(0, 12)}
+            {session.name || session.summary || session.id.slice(0, 12)}
           </Text>
           <Text sx={{ color: 'fg.muted', fontSize: 0 }}>{session.cwd}</Text>
         </Box>
-        <Label variant={isRunning ? 'success' : 'secondary'}>
-          {isRunning ? 'running' : 'ended'}
+        <Label variant={isLive ? 'success' : 'secondary'}>
+          {isRunning ? 'running' : isActive ? 'active' : 'ended'}
         </Label>
         {isRunning ? (
           <IconButton
@@ -132,7 +138,7 @@ export function ChatView({ session, messages, onSend, onResume }: Props) {
       </Box>
 
       {/* Input area — always visible */}
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', gap: 2, flexShrink: 0 }}>
+      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', gap: 2, flexShrink: 0, bg: 'canvas.subtle' }}>
         <TextInput
           value={input}
           onChange={(e) => setInput(e.target.value)}
