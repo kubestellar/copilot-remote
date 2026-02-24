@@ -2,7 +2,7 @@ export interface Session {
   id: string;
   cwd: string;
   summary?: string;
-  status: 'running' | 'idle' | 'exited';
+  status: 'running' | 'active' | 'idle' | 'exited';
   createdAt: string;
   updatedAt: string;
   pid?: number;

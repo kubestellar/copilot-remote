@@ -5,6 +5,7 @@ import { URL } from 'url';
 import { getOrCreateToken, authMiddleware, validateWsToken } from './auth.js';
 import { sessionManager } from './session-manager.js';
 import { listHistoricalSessions, getSessionDetail, getSessionMessages } from './session-store.js';
+import { getAllMeta, updateMeta, addTag, removeTag } from './session-meta.js';
 import type { WsMessage, WsServerMessage } from './types.js';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -28,7 +29,14 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.get('/api/sessions', (_req, res) => {
-  res.json(sessionManager.getAllSessions());
+  const sessions = sessionManager.getAllSessions();
+  const meta = getAllMeta();
+  const enriched = sessions.map(s => ({
+    ...s,
+    name: meta[s.id]?.name,
+    tags: meta[s.id]?.tags || [],
+  }));
+  res.json(enriched);
 });
 
 app.post('/api/sessions', async (req, res) => {
@@ -42,10 +50,15 @@ app.post('/api/sessions', async (req, res) => {
 });
 
 app.get('/api/sessions/:id', (req, res) => {
+  const meta = getAllMeta();
+  const sessionMeta = meta[req.params.id] || {};
+
   const managed = sessionManager.getSession(req.params.id);
   if (managed) {
     res.json({
       ...managed.session,
+      name: sessionMeta.name,
+      tags: sessionMeta.tags || [],
       messages: managed.messages.slice(-100),
     });
     return;
@@ -54,10 +67,32 @@ app.get('/api/sessions/:id', (req, res) => {
   const historical = getSessionDetail(req.params.id);
   if (historical) {
     const messages = getSessionMessages(req.params.id);
-    res.json({ ...historical, messages: messages.slice(-200) });
+    res.json({ ...historical, name: sessionMeta.name, tags: sessionMeta.tags || [], messages: messages.slice(-200) });
     return;
   }
   res.status(404).json({ error: 'Session not found' });
+});
+
+// Session metadata CRUD
+app.patch('/api/sessions/:id/meta', (req, res) => {
+  const { name, tags } = req.body;
+  const update: Record<string, any> = {};
+  if (name !== undefined) update.name = name;
+  if (tags !== undefined) update.tags = tags;
+  const result = updateMeta(req.params.id, update);
+  res.json(result);
+});
+
+app.post('/api/sessions/:id/tags', (req, res) => {
+  const { tag } = req.body;
+  if (!tag) { res.status(400).json({ error: 'tag required' }); return; }
+  const tags = addTag(req.params.id, tag);
+  res.json({ tags });
+});
+
+app.delete('/api/sessions/:id/tags/:tag', (req, res) => {
+  const tags = removeTag(req.params.id, req.params.tag);
+  res.json({ tags });
 });
 
 app.delete('/api/sessions/:id', (req, res) => {

@@ -1,13 +1,13 @@
-import { watch, readFileSync, readdirSync, existsSync, statSync } from 'fs';
+import { readFileSync, readdirSync, existsSync, statSync, openSync, readSync, closeSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { ChatMessage } from './types.js';
 
 const SESSION_STATE_DIR = join(homedir(), '.copilot', 'session-state');
+const POLL_INTERVAL_MS = 1500;
 
-// Track file offsets so we only process new lines
+// Track byte offsets for efficient tailing
 const fileOffsets = new Map<string, number>();
-const watchers = new Map<string, ReturnType<typeof watch>>();
 
 type MessageCallback = (sessionId: string, message: ChatMessage) => void;
 
@@ -19,98 +19,109 @@ function parseEvent(line: string): { type: string; data: any; id?: string; times
   }
 }
 
-function processNewLines(sessionId: string, eventsPath: string, callback: MessageCallback) {
+function readNewBytes(eventsPath: string): string | null {
   try {
     const stat = statSync(eventsPath);
     const currentOffset = fileOffsets.get(eventsPath) || 0;
+    if (stat.size <= currentOffset) return null;
 
-    if (stat.size <= currentOffset) return;
-
-    const fd = readFileSync(eventsPath, 'utf-8');
-    const newContent = fd.slice(currentOffset);
-    fileOffsets.set(eventsPath, fd.length);
-
-    const lines = newContent.split('\n').filter(l => l.trim());
-
-    for (const line of lines) {
-      const event = parseEvent(line);
-      if (!event) continue;
-
-      if (event.type === 'user.message' && event.data?.content) {
-        callback(sessionId, {
-          id: event.id || '',
-          role: 'user',
-          content: event.data.content,
-          timestamp: event.timestamp || '',
-        });
-      } else if (event.type === 'assistant.message' && event.data?.content) {
-        callback(sessionId, {
-          id: event.data.messageId || event.id || '',
-          role: 'copilot',
-          content: event.data.content,
-          timestamp: event.timestamp || '',
-        });
-      }
+    const bytesToRead = stat.size - currentOffset;
+    const buf = Buffer.alloc(bytesToRead);
+    const fd = openSync(eventsPath, 'r');
+    try {
+      readSync(fd, buf, 0, bytesToRead, currentOffset);
+    } finally {
+      closeSync(fd);
     }
+    fileOffsets.set(eventsPath, stat.size);
+    return buf.toString('utf-8');
   } catch {
-    // File read error — skip
+    return null;
   }
 }
 
-function watchSession(sessionId: string, callback: MessageCallback) {
-  const eventsPath = join(SESSION_STATE_DIR, sessionId, 'events.jsonl');
-  if (!existsSync(eventsPath) || watchers.has(sessionId)) return;
+function processNewLines(sessionId: string, eventsPath: string, callback: MessageCallback) {
+  const newContent = readNewBytes(eventsPath);
+  if (!newContent) return;
 
-  // Set initial offset to end of file so we only get new events
-  try {
-    const content = readFileSync(eventsPath, 'utf-8');
-    fileOffsets.set(eventsPath, content.length);
-  } catch {
-    return;
+  const lines = newContent.split('\n').filter(l => l.trim());
+
+  for (const line of lines) {
+    const event = parseEvent(line);
+    if (!event) continue;
+
+    if (event.type === 'user.message' && event.data?.content) {
+      callback(sessionId, {
+        id: event.id || '',
+        role: 'user',
+        content: event.data.content,
+        timestamp: event.timestamp || '',
+      });
+    } else if (event.type === 'assistant.message' && event.data?.content) {
+      callback(sessionId, {
+        id: event.data.messageId || event.id || '',
+        role: 'copilot',
+        content: event.data.content,
+        timestamp: event.timestamp || '',
+      });
+    }
   }
+}
 
+function initOffset(eventsPath: string) {
   try {
-    const watcher = watch(eventsPath, (eventType) => {
-      if (eventType === 'change') {
-        processNewLines(sessionId, eventsPath, callback);
-      }
-    });
-    watchers.set(sessionId, watcher);
+    const stat = statSync(eventsPath);
+    fileOffsets.set(eventsPath, stat.size);
   } catch {
-    // Watch failed
+    // Ignore
   }
 }
 
 export function watchSessionEvents(callback: MessageCallback) {
   if (!existsSync(SESSION_STATE_DIR)) return { stop: () => {} };
 
-  // Watch existing session directories
+  // Initialize offsets for all existing sessions
   try {
     const entries = readdirSync(SESSION_STATE_DIR, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        watchSession(entry.name, callback);
+        const eventsPath = join(SESSION_STATE_DIR, entry.name, 'events.jsonl');
+        if (existsSync(eventsPath)) {
+          initOffset(eventsPath);
+        }
       }
     }
   } catch {
-    // Can't read session state dir
+    // Ignore
   }
 
-  // Watch for new session directories
-  const dirWatcher = watch(SESSION_STATE_DIR, (eventType, filename) => {
-    if (filename && !watchers.has(filename)) {
-      const sessionDir = join(SESSION_STATE_DIR, filename);
-      if (existsSync(sessionDir) && statSync(sessionDir).isDirectory()) {
-        watchSession(filename, callback);
+  // Poll all sessions for changes
+  const interval = setInterval(() => {
+    try {
+      const entries = readdirSync(SESSION_STATE_DIR, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const eventsPath = join(SESSION_STATE_DIR, entry.name, 'events.jsonl');
+        if (!existsSync(eventsPath)) continue;
+
+        // Initialize offset for new sessions
+        if (!fileOffsets.has(eventsPath)) {
+          initOffset(eventsPath);
+          continue;
+        }
+
+        processNewLines(entry.name, eventsPath, callback);
       }
+    } catch {
+      // Ignore polling errors
     }
-  });
+  }, POLL_INTERVAL_MS);
+
+  console.log(`👀 Watching ${fileOffsets.size} session(s) for live updates (polling every ${POLL_INTERVAL_MS}ms)`);
 
   return {
     stop: () => {
-      dirWatcher.close();
-      for (const w of watchers.values()) w.close();
-      watchers.clear();
+      clearInterval(interval);
     },
   };
 }

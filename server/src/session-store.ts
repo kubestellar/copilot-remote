@@ -18,6 +18,8 @@ export function listHistoricalSessions(): Session[] {
   if (!existsSync(SESSION_STATE_DIR)) return [];
 
   const sessions: Session[] = [];
+  const now = Date.now();
+  const ACTIVE_THRESHOLD_MS = 120_000; // 2 minutes
 
   try {
     const entries = readdirSync(SESSION_STATE_DIR, { withFileTypes: true });
@@ -33,13 +35,23 @@ export function listHistoricalSessions(): Session[] {
         const data = parseYaml(raw) as WorkspaceYaml;
         const stat = statSync(workspacePath);
 
+        // Check if events.jsonl was recently modified (session is active in a terminal)
+        const eventsPath = join(SESSION_STATE_DIR, entry.name, 'events.jsonl');
+        let isActive = false;
+        let lastInteraction: string | undefined;
+        try {
+          const eventsStat = statSync(eventsPath);
+          isActive = (now - eventsStat.mtimeMs) < ACTIVE_THRESHOLD_MS;
+          lastInteraction = eventsStat.mtime.toISOString();
+        } catch { /* no events file */ }
+
         sessions.push({
           id: data.id || entry.name,
           cwd: data.cwd || '',
           summary: data.summary,
-          status: 'exited',
+          status: isActive ? 'active' : 'exited',
           createdAt: data.created_at || stat.birthtime.toISOString(),
-          updatedAt: data.updated_at || stat.mtime.toISOString(),
+          updatedAt: lastInteraction || data.updated_at || stat.mtime.toISOString(),
         });
       } catch {
         // Skip malformed session directories

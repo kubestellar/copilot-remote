@@ -39,4 +39,13 @@ export const api = {
 
   killSession: (id: string) =>
     request<{ killed: boolean }>(`/api/sessions/${id}`, { method: 'DELETE' }),
+
+  updateSessionMeta: (id: string, meta: { name?: string; tags?: string[] }) =>
+    request<{ name?: string; tags?: string[] }>(`/api/sessions/${id}/meta`, { method: 'PATCH', body: JSON.stringify(meta) }),
+
+  addTag: (id: string, tag: string) =>
+    request<{ tags: string[] }>(`/api/sessions/${id}/tags`, { method: 'POST', body: JSON.stringify({ tag }) }),
+
+  removeTag: (id: string, tag: string) =>
+    request<{ tags: string[] }>(`/api/sessions/${id}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }),
 };
