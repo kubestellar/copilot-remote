@@ -29,13 +29,25 @@ interface Props {
   onSelect: (id: string) => void;
   onNew: () => void;
   onRefresh: () => void;
+  onEditingChange?: (editing: boolean) => void;
 }
 
-export function SessionList({ sessions, loading, error, activeId, onSelect, onNew, onRefresh }: Props) {
+export function SessionList({ sessions, loading, error, activeId, onSelect, onNew, onRefresh, onEditingChange }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [addingTagId, setAddingTagId] = useState<string | null>(null);
   const [newTag, setNewTag] = useState('');
+
+  // Notify parent when editing state changes to pause polling
+  const setEditing = useCallback((id: string | null) => {
+    setEditingId(id);
+    onEditingChange?.(id !== null);
+  }, [onEditingChange]);
+
+  const setAddingTag = useCallback((id: string | null) => {
+    setAddingTagId(id);
+    onEditingChange?.(id !== null);
+  }, [onEditingChange]);
 
   const statusColor = (s: Session['status']) => {
     switch (s) {
@@ -57,17 +69,15 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
 
   const handleStartRename = useCallback((e: React.MouseEvent, session: Session) => {
     e.stopPropagation();
-    setEditingId(session.id);
+    setEditing(session.id);
     setEditName(session.name || session.summary || '');
-  }, []);
+  }, [setEditing]);
 
   const handleSaveRename = useCallback(async (sessionId: string) => {
-    if (editName.trim()) {
-      await api.updateSessionMeta(sessionId, { name: editName.trim() });
-      onRefresh();
-    }
-    setEditingId(null);
-  }, [editName, onRefresh]);
+    await api.updateSessionMeta(sessionId, { name: editName.trim() || undefined });
+    onRefresh();
+    setEditing(null);
+  }, [editName, onRefresh, setEditing]);
 
   const handleAddTag = useCallback(async (sessionId: string) => {
     if (newTag.trim()) {
@@ -75,8 +85,8 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
       onRefresh();
     }
     setNewTag('');
-    setAddingTagId(null);
-  }, [newTag, onRefresh]);
+    setAddingTag(null);
+  }, [newTag, onRefresh, setAddingTag]);
 
   const handleRemoveTag = useCallback(async (e: React.MouseEvent, sessionId: string, tag: string) => {
     e.stopPropagation();
@@ -109,15 +119,19 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
             </ActionList.LeadingVisual>
             <Box sx={{ overflow: 'hidden', width: '100%' }}>
               {editingId === session.id ? (
-                <Box sx={{ display: 'flex', gap: 1 }} onClick={e => e.stopPropagation()}>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                   <TextInput
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRename(session.id); if (e.key === 'Escape') setEditingId(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRename(session.id); if (e.key === 'Escape') setEditing(null); }}
+                    onBlur={() => handleSaveRename(session.id)}
                     size="small"
-                    sx={{ flex: 1, fontSize: 0 }}
+                    sx={{ flex: 1, fontSize: 0, bg: 'canvas.default', color: 'fg.default' }}
                     autoFocus
                   />
+                  <Button size="small" variant="primary" onClick={() => handleSaveRename(session.id)} sx={{ fontSize: 0, py: 0, px: 2 }}>
+                    Save
+                  </Button>
                 </Box>
               ) : (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -161,10 +175,10 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
                     <input
                       value={newTag}
                       onChange={e => setNewTag(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') handleAddTag(session.id); if (e.key === 'Escape') { setAddingTagId(null); setNewTag(''); } }}
+                      onKeyDown={e => { if (e.key === 'Enter') handleAddTag(session.id); if (e.key === 'Escape') { setAddingTag(null); setNewTag(''); } }}
                       placeholder="tag"
                       autoFocus
-                      style={{ width: 60, fontSize: 10, padding: '1px 4px', borderRadius: 4, border: '1px solid #30363d', background: '#0d1117', color: '#e6edf3' }}
+                      style={{ width: 60, fontSize: 10, padding: '2px 6px', borderRadius: 4, border: '1px solid #444c56', background: '#161b22', color: '#e6edf3' }}
                     />
                   </Box>
                 ) : (

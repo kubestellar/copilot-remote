@@ -26,7 +26,7 @@ export default function App() {
   }, []);
 
   const { connected, subscribe, unsubscribe, sendInput } = useWebSocket(handleWsMessage);
-  const { sessions, loading, error, refresh } = useSessions();
+  const { sessions, loading, error, refresh, setPaused } = useSessions();
 
   const handleSelectSession = useCallback((id: string) => {
     if (activeSessionId) unsubscribe(activeSessionId);
@@ -87,6 +87,7 @@ export default function App() {
             onSelect={handleSelectSession}
             onNew={handleNewSession}
             onRefresh={refresh}
+            onEditingChange={setPaused}
           />
         </Box>
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>

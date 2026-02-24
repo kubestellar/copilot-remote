@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Box, TextInput, IconButton, Text, Label, Button } from '@primer/react';
+import { Box, IconButton, Text, Label, Button } from '@primer/react';
 import { PaperAirplaneIcon, SquareIcon, PlayIcon } from '@primer/octicons-react';
 import { MessageBubble } from './MessageBubble';
 import { api } from '../lib/api';
@@ -137,23 +137,57 @@ export function ChatView({ session, messages, onSend, onResume }: Props) {
         ))}
       </Box>
 
-      {/* Input area — always visible */}
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'border.default', display: 'flex', gap: 2, flexShrink: 0, bg: 'canvas.subtle' }}>
-        <TextInput
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          sx={{ flex: 1 }}
-          autoFocus
-        />
-        <IconButton
-          icon={PaperAirplaneIcon}
-          aria-label="Send"
-          variant="primary"
-          onClick={handleSend}
-          disabled={!input.trim()}
-        />
+      {/* Input area — iMessage style */}
+      <Box sx={{
+        px: 3,
+        pt: 2,
+        pb: 4,
+        borderTop: '1px solid',
+        borderColor: 'border.default',
+        flexShrink: 0,
+        bg: 'canvas.subtle',
+      }}>
+        <Box sx={{
+          display: 'flex',
+          gap: 2,
+          alignItems: 'flex-end',
+        }}>
+          <Box sx={{
+            flex: 1,
+            bg: 'canvas.default',
+            borderRadius: '20px',
+            border: '1px solid',
+            borderColor: 'border.default',
+            px: 3,
+            py: '6px',
+            display: 'flex',
+            alignItems: 'center',
+          }}>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'inherit',
+                fontSize: 14,
+                lineHeight: '20px',
+              }}
+            />
+          </Box>
+          <IconButton
+            icon={PaperAirplaneIcon}
+            aria-label="Send"
+            variant="primary"
+            onClick={handleSend}
+            disabled={!input.trim()}
+            sx={{ borderRadius: '50%', width: 36, height: 36, flexShrink: 0 }}
+          />
+        </Box>
       </Box>
     </Box>
   );
