@@ -173,7 +173,7 @@ export function ChatView({ session, messages, onSend, onResume }: Props) {
                 background: 'transparent',
                 border: 'none',
                 outline: 'none',
-                color: 'inherit',
+                color: '#e6edf3',
                 fontSize: 14,
                 lineHeight: '20px',
               }}
