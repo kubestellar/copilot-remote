@@ -61,6 +61,7 @@ export function TerminalView({ onBack }: Props) {
   const [tileMode, setTileMode] = useState(false);
   const [fontReady, setFontReady] = useState(false);
   const singleRef = useRef<HTMLDivElement>(null);
+  const tileContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
 
@@ -389,50 +390,6 @@ export function TerminalView({ onBack }: Props) {
   const hasChecked = checkedTabs.length > 0;
   const activeTab = tabs.find(t => t.id === activeTabId);
 
-  // Tile ref callback — mount terminal into tile container
-  const tileRefCallback = useCallback((el: HTMLDivElement | null, tabId: string) => {
-    if (!el || !tileMode || !fontReady) return;
-    setTimeout(() => {
-      if (!el.isConnected) return;
-      const inst = termInstances.get(tabId);
-      if (inst) {
-        inst.term.options.fontSize = tileFontSize;
-        if (inst.container !== el) {
-          el.innerHTML = '';
-          inst.term.open(el);
-          inst.container = el;
-        }
-        setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 100);
-      } else {
-        createTermConnection(tabId, el, tileFontSize);
-      }
-    }, 50);
-  }, [tileMode, fontReady, createTermConnection, tileFontSize]);
-
-  // Refit tiles when entering tile mode
-  useEffect(() => {
-    if (!tileMode) {
-      // Restore normal font size when leaving tile mode
-      for (const [, inst] of termInstances) {
-        if (inst.term.options.fontSize !== 14) {
-          inst.term.options.fontSize = 14;
-          try { inst.fitAddon.fit(); } catch {}
-        }
-      }
-      return;
-    }
-    const timer = setTimeout(() => {
-      for (const tab of checkedTabs) {
-        const inst = termInstances.get(tab.id);
-        if (inst) {
-          inst.term.options.fontSize = tileFontSize;
-          try { inst.fitAddon.fit(); } catch {}
-        }
-      }
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [tileMode, checkedTabs.length, tileFontSize]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Dynamic grid: 1→1, 2→2, 3-4→2, 5-6→3, 7-9→3, 10+→4
   const tileCols = checkedTabs.length <= 2 ? checkedTabs.length
     : checkedTabs.length <= 4 ? 2
@@ -442,6 +399,51 @@ export function TerminalView({ onBack }: Props) {
   // Scale font size down in tile mode based on grid density
   const tileRows = Math.ceil(checkedTabs.length / Math.max(tileCols, 1));
   const tileFontSize = tileRows <= 1 ? 13 : tileRows <= 2 ? 10 : tileRows <= 3 ? 8 : 7;
+
+  // Collect tile container refs (no mounting here — just store the DOM element)
+  const tileRefCallback = useCallback((el: HTMLDivElement | null, tabId: string) => {
+    if (el) {
+      tileContainerRefs.current.set(tabId, el);
+    } else {
+      tileContainerRefs.current.delete(tabId);
+    }
+  }, []);
+
+  // Mount terminals into tile containers when tile mode is active
+  useEffect(() => {
+    if (!tileMode || !fontReady) {
+      if (!tileMode) {
+        // Restore normal font size when leaving tile mode
+        for (const [, inst] of termInstances) {
+          if (inst.term.options.fontSize !== 14) {
+            inst.term.options.fontSize = 14;
+            try { inst.fitAddon.fit(); } catch {}
+          }
+        }
+      }
+      return;
+    }
+    // Delay to let the grid containers get layout dimensions
+    const timer = setTimeout(() => {
+      for (const tab of checkedTabs) {
+        const el = tileContainerRefs.current.get(tab.id);
+        if (!el || !el.isConnected) continue;
+        const inst = termInstances.get(tab.id);
+        if (inst) {
+          inst.term.options.fontSize = tileFontSize;
+          if (inst.container !== el) {
+            el.innerHTML = '';
+            inst.term.open(el);
+            inst.container = el;
+          }
+          try { inst.fitAddon.fit(); } catch {}
+        } else {
+          createTermConnection(tab.id, el, tileFontSize);
+        }
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
