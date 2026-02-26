@@ -20,6 +20,8 @@ const termInstances = new Map<string, {
   ws: WebSocket;
   connected: boolean;
   container: HTMLDivElement | null;
+  reconnectAttempts: number;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
 }>();
 
 function getServerUrls() {
@@ -76,6 +78,7 @@ export function TerminalView({ onBack }: Props) {
     // Clean up if exists
     const existing = termInstances.get(tabId);
     if (existing) {
+      if (existing.reconnectTimer) clearTimeout(existing.reconnectTimer);
       existing.ws?.close();
       existing.term?.dispose();
       termInstances.delete(tabId);
@@ -94,11 +97,12 @@ export function TerminalView({ onBack }: Props) {
     }, 50);
 
     const ws = new WebSocket(`${wsUrl}/ws/terminal?token=${token}&id=${tabId}`);
-    const inst = { term, fitAddon, ws, connected: false, container };
+    const inst = { term, fitAddon, ws, connected: false, container, reconnectAttempts: 0, reconnectTimer: null as ReturnType<typeof setTimeout> | null };
     termInstances.set(tabId, inst);
 
     ws.onopen = () => {
       inst.connected = true;
+      inst.reconnectAttempts = 0;
       ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       setTabs(prev => [...prev]); // trigger re-render for status dot
     };
@@ -116,8 +120,18 @@ export function TerminalView({ onBack }: Props) {
 
     ws.onclose = () => {
       inst.connected = false;
-      term.write('\r\n\x1b[33m[Disconnected]\x1b[0m\r\n');
       setTabs(prev => [...prev]);
+
+      // Auto-reconnect if this tab has a tmux session
+      const tab = tabsRef.current.find(t => t.id === tabId);
+      if (tab?.tmuxSession && inst.reconnectAttempts < 5) {
+        const delay = Math.min(2000 * Math.pow(1.5, inst.reconnectAttempts), 15000);
+        inst.reconnectAttempts++;
+        term.write(`\r\n\x1b[33m[Reconnecting in ${Math.round(delay / 1000)}s...]\x1b[0m\r\n`);
+        inst.reconnectTimer = setTimeout(() => attemptReconnect(tabId, tab.tmuxSession, container), delay);
+      } else {
+        term.write('\r\n\x1b[33m[Disconnected]\x1b[0m\r\n');
+      }
     };
 
     term.onData((data) => {
@@ -128,6 +142,49 @@ export function TerminalView({ onBack }: Props) {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     });
   }, []);
+
+  // Re-attach to a tmux session via the server, then reconnect WS
+  const attemptReconnect = useCallback(async (tabId: string, tmuxSession: string, container: HTMLDivElement) => {
+    const { token, serverUrl } = getServerUrls();
+    const inst = termInstances.get(tabId);
+
+    try {
+      // Ask server to attach to the tmux session (creates a new PTY)
+      const res = await fetch(`${serverUrl}/api/terminals/attach`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tmuxSession }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      // Server gave us a new terminal ID — update tab and reconnect
+      const newId = data.id;
+      if (inst) {
+        inst.ws?.close();
+        inst.term?.dispose();
+        if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
+        termInstances.delete(tabId);
+      }
+
+      // Update tab ID in state
+      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, id: newId, tmuxSession: data.tmuxSession || tmuxSession } : t));
+      setActiveTabId(prev => prev === tabId ? newId : prev);
+
+      // Create fresh connection with new ID
+      createTermConnection(newId, container);
+    } catch {
+      // Re-attach failed — schedule another retry if under limit
+      if (inst && inst.reconnectAttempts < 5) {
+        const delay = Math.min(2000 * Math.pow(1.5, inst.reconnectAttempts), 15000);
+        inst.reconnectAttempts++;
+        inst.term?.write(`\r\n\x1b[33m[Reconnect failed, retrying in ${Math.round(delay / 1000)}s...]\x1b[0m\r\n`);
+        inst.reconnectTimer = setTimeout(() => attemptReconnect(tabId, tmuxSession, container), delay);
+      } else if (inst) {
+        inst.term?.write('\r\n\x1b[31m[Reconnect failed — session may be gone]\x1b[0m\r\n');
+      }
+    }
+  }, [createTermConnection]);
 
   const [aiClis, setAiClis] = useState<{ name: string; path: string }[]>([]);
 
@@ -212,6 +269,8 @@ export function TerminalView({ onBack }: Props) {
     const { token, serverUrl } = getServerUrls();
     const inst = termInstances.get(id);
     if (inst) {
+      if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
+      inst.reconnectAttempts = 999; // prevent reconnect on close
       inst.ws?.close();
       inst.term?.dispose();
       termInstances.delete(id);
@@ -274,6 +333,7 @@ export function TerminalView({ onBack }: Props) {
       .catch(() => addTab());
     return () => {
       for (const [, inst] of termInstances) {
+        if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
         inst.ws?.close();
         inst.term?.dispose();
       }
