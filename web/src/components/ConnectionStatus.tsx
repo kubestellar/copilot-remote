@@ -17,7 +17,8 @@ export function ConnectionStatus({ connected }: Props) {
       try {
         await api.health();
         setApiReachable(true);
-      } catch {
+      } catch (err) {
+        console.debug('[ConnectionStatus] Health check failed:', err);
         setApiReachable(false);
       }
     };

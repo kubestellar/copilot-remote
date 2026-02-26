@@ -94,10 +94,8 @@ export function TerminalView({ onBack }: Props) {
     container.innerHTML = '';
     term.open(container);
     setTimeout(() => {
-      try { fitAddon.fit(); } catch {}
+      try { fitAddon.fit(); } catch (_err) {}
     }, 50);
-
-    const ws = new WebSocket(`${wsUrl}/ws/terminal?token=${token}&id=${tabId}`);
     const inst = { term, fitAddon, ws, connected: false, container, reconnectAttempts: 0, reconnectTimer: null as ReturnType<typeof setTimeout> | null };
     termInstances.set(tabId, inst);
 
@@ -115,7 +113,7 @@ export function TerminalView({ onBack }: Props) {
           setTabs(prev => prev.map(t => t.id === parsed.id ? { ...t, name: parsed.command } : t));
           return;
         }
-      } catch { /* raw terminal data */ }
+      } catch (_err) { /* raw terminal data */ }
       term.write(e.data);
     };
 
@@ -349,7 +347,7 @@ export function TerminalView({ onBack }: Props) {
     const inst = termInstances.get(activeTabId);
     if (inst && inst.container === container) {
       // Already mounted here — just refit
-      setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
+      setTimeout(() => { try { inst.fitAddon.fit(); } catch (_err) {} }, 50);
       return;
     }
     // Use setTimeout to ensure container has layout dimensions before mounting
@@ -361,7 +359,7 @@ export function TerminalView({ onBack }: Props) {
         container.innerHTML = '';
         inst.term.open(container);
         inst.container = container;
-        setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
+        setTimeout(() => { try { inst.fitAddon.fit(); } catch (_err) {} }, 50);
         inst.term.focus();
       } else if (tabs.find(t => t.id === activeTabId)) {
         // New terminal — connect
@@ -375,11 +373,11 @@ export function TerminalView({ onBack }: Props) {
     const handleResize = () => {
       if (tileMode) {
         for (const [, inst] of termInstances) {
-          try { inst.fitAddon.fit(); } catch {}
+          try { inst.fitAddon.fit(); } catch (_err) {}
         }
       } else {
         const inst = activeTabId ? termInstances.get(activeTabId) : null;
-        if (inst) try { inst.fitAddon.fit(); } catch {}
+        if (inst) try { inst.fitAddon.fit(); } catch (_err) {}
       }
     };
     window.addEventListener('resize', handleResize);
@@ -417,7 +415,7 @@ export function TerminalView({ onBack }: Props) {
         for (const [, inst] of termInstances) {
           if (inst.term.options.fontSize !== 14) {
             inst.term.options.fontSize = 14;
-            try { inst.fitAddon.fit(); } catch {}
+            try { inst.fitAddon.fit(); } catch (_err) {}
           }
         }
       }
@@ -440,7 +438,7 @@ export function TerminalView({ onBack }: Props) {
           el.innerHTML = '';
           inst.term.open(el);
           inst.container = el;
-          try { inst.fitAddon.fit(); } catch {}
+          try { inst.fitAddon.fit(); } catch (_err) {}
         } else {
           createTermConnection(tab.id, el, tileFontSize);
         }

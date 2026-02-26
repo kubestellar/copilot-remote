@@ -131,7 +131,8 @@ class AcpManager extends EventEmitter {
         });
         acpSession.acpSessionId = sessionId;
         console.log(`[ACP] Resumed session ${sessionId.slice(0, 8)}`);
-      } catch {
+      } catch (err) {
+        console.debug(`[ACP] Resume not supported for session ${sessionId.slice(0, 8)}, trying loadSession:`, (err as Error).message);
         // If resume not supported, try loadSession
         try {
           const loadResult = await connection.loadSession({
@@ -141,7 +142,8 @@ class AcpManager extends EventEmitter {
           });
           acpSession.acpSessionId = sessionId;
           console.log(`[ACP] Loaded session ${sessionId.slice(0, 8)}`);
-        } catch {
+        } catch (err2) {
+          console.debug(`[ACP] Load session not supported for ${sessionId.slice(0, 8)}, falling back to new session:`, (err2 as Error).message);
           // Fall back to new session
           const newResult = await connection.newSession({
             cwd,
@@ -177,7 +179,7 @@ class AcpManager extends EventEmitter {
     } catch (err: any) {
       console.error(`[ACP] Failed to connect for session ${sessionId.slice(0, 8)}:`, err.message);
       acpSession.status = 'dead';
-      try { proc.kill(); } catch {}
+      try { proc.kill(); } catch (killErr) { console.warn('[ACP] Failed to kill process:', killErr); }
       throw err;
     }
   }
@@ -222,7 +224,7 @@ class AcpManager extends EventEmitter {
   destroy(sessionId: string) {
     const session = this.sessions.get(sessionId);
     if (session?.proc) {
-      try { session.proc.kill(); } catch {}
+      try { session.proc.kill(); } catch (killErr) { console.warn('[ACP] Failed to kill session process:', killErr); }
     }
     session && (session.status = 'dead');
     this.sessions.delete(sessionId);
