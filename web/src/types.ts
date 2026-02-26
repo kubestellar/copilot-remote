@@ -19,7 +19,7 @@ export interface ChatMessage {
 }
 
 export interface WsMessage {
-  type: 'output' | 'status' | 'sessions' | 'message' | 'error';
+  type: 'output' | 'status' | 'sessions' | 'message' | 'error' | 'stream' | 'tool' | 'turn_complete';
   sessionId?: string;
   data?: string;
   status?: Session['status'];
@@ -27,4 +27,7 @@ export interface WsMessage {
   message?: ChatMessage;
   error?: string;
   timestamp?: string;
+  text?: string;
+  stopReason?: string;
+  tool?: { title?: string; toolCallId?: string; status?: string };
 }

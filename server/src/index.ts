@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { URL } from 'url';
 import { getOrCreateToken, authMiddleware, validateWsToken } from './auth.js';
 import { sessionManager } from './session-manager.js';
+import { acpManager } from './acp-manager.js';
 import { listHistoricalSessions, getSessionDetail, getSessionMessages } from './session-store.js';
 import { getAllMeta, updateMeta, addTag, removeTag } from './session-meta.js';
 import type { WsMessage, WsServerMessage } from './types.js';
@@ -103,12 +104,17 @@ app.delete('/api/sessions/:id', (req, res) => {
   res.json({ killed });
 });
 
-app.post('/api/sessions/:id/send', (req, res) => {
+app.post('/api/sessions/:id/send', async (req, res) => {
   const { text } = req.body;
   if (!text) { res.status(400).json({ error: 'text required' }); return; }
-  const sent = sessionManager.sendInput(req.params.id, text);
-  if (!sent) { res.status(404).json({ error: 'Session not running' }); return; }
-  res.json({ sent: true });
+  try {
+    await acpManager.sendPrompt(req.params.id, text);
+    res.json({ sent: true, via: 'acp' });
+  } catch {
+    const sent = sessionManager.sendInput(req.params.id, text);
+    if (!sent) { res.status(404).json({ error: 'Session not running' }); return; }
+    res.json({ sent: true, via: 'pty' });
+  }
 });
 
 // WebSocket
@@ -142,11 +148,15 @@ wss.on('connection', (ws, req) => {
           break;
         case 'input':
           if (msg.sessionId && msg.text) {
-            const sent = sessionManager.sendInput(msg.sessionId, msg.text);
-            if (!sent) {
-              // Not managed — resume with the prompt
-              sessionManager.createSession({ resume: msg.sessionId, prompt: msg.text });
-            }
+            // Prefer ACP for streaming
+            acpManager.sendPrompt(msg.sessionId, msg.text).catch((err) => {
+              console.error(`[ACP] Prompt failed for ${msg.sessionId?.slice(0, 8)}: ${err.message}`);
+              // Fall back to session-manager (PTY/resume)
+              const sent = sessionManager.sendInput(msg.sessionId!, msg.text!);
+              if (!sent) {
+                sessionManager.createSession({ resume: msg.sessionId!, prompt: msg.text! });
+              }
+            });
           }
           break;
 
@@ -187,7 +197,26 @@ sessionManager.on('message', (sessionId: string, message: any) => {
 import { watchSessionEvents } from './session-watcher.js';
 
 const sessionWatcher = watchSessionEvents((sessionId, message) => {
+  // Skip broadcasting watcher events for sessions with active ACP connections (dedup)
+  if (acpManager.hasSession(sessionId)) return;
   broadcast(sessionId, { type: 'message', sessionId, message });
+});
+
+// ACP streaming events → WebSocket broadcast
+acpManager.on('chunk', (sessionId: string, text: string) => {
+  broadcast(sessionId, { type: 'stream', sessionId, text, timestamp: new Date().toISOString() });
+});
+
+acpManager.on('tool', (sessionId: string, tool: any) => {
+  broadcast(sessionId, { type: 'tool', sessionId, tool, timestamp: new Date().toISOString() });
+});
+
+acpManager.on('turn_complete', (sessionId: string, stopReason: string) => {
+  broadcast(sessionId, { type: 'turn_complete', sessionId, stopReason, timestamp: new Date().toISOString() });
+});
+
+acpManager.on('error', (sessionId: string, err: Error) => {
+  broadcast(sessionId, { type: 'error', sessionId, error: err.message, timestamp: new Date().toISOString() });
 });
 
 // Start

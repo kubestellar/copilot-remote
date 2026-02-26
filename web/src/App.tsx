@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Box, Text } from '@primer/react';
 import { SessionList } from './components/SessionList';
 import { ChatView } from './components/ChatView';
@@ -16,13 +16,14 @@ export default function App() {
   const [messages, setMessages] = useState<Map<string, ChatMessage[]>>(new Map());
   const [showNewSession, setShowNewSession] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
+  // Track streaming text accumulation per session
+  const streamBuffers = useRef<Map<string, string>>(new Map());
 
   const handleWsMessage = useCallback((msg: WsMessage) => {
     if (msg.type === 'message' && msg.sessionId && msg.message) {
       setMessages(prev => {
         const next = new Map(prev);
         const list = next.get(msg.sessionId!) || [];
-        // Deduplicate: skip if same role+content already exists (optimistic or watcher duplicate)
         const m = msg.message!;
         const isDup = list.some(existing =>
           existing.role === m.role && existing.content === m.content
@@ -31,6 +32,51 @@ export default function App() {
         next.set(msg.sessionId!, [...list, m]);
         return next;
       });
+    } else if (msg.type === 'stream' && msg.sessionId && msg.text) {
+      // Accumulate streaming text into a "typing" message
+      const sid = msg.sessionId;
+      const buf = (streamBuffers.current.get(sid) || '') + msg.text;
+      streamBuffers.current.set(sid, buf);
+      setMessages(prev => {
+        const next = new Map(prev);
+        const list = next.get(sid) || [];
+        // Update or create the streaming message (last message with id 'streaming-<sid>')
+        const streamId = `streaming-${sid}`;
+        const streamMsg: ChatMessage = {
+          id: streamId,
+          role: 'copilot',
+          content: buf,
+          timestamp: new Date().toISOString(),
+        };
+        const idx = list.findIndex(m => m.id === streamId);
+        if (idx >= 0) {
+          const updated = [...list];
+          updated[idx] = streamMsg;
+          next.set(sid, updated);
+        } else {
+          next.set(sid, [...list, streamMsg]);
+        }
+        return next;
+      });
+    } else if (msg.type === 'turn_complete' && msg.sessionId) {
+      // Finalize the streaming message with a stable ID
+      const sid = msg.sessionId;
+      const buf = streamBuffers.current.get(sid);
+      streamBuffers.current.delete(sid);
+      if (buf) {
+        setMessages(prev => {
+          const next = new Map(prev);
+          const list = next.get(sid) || [];
+          const streamId = `streaming-${sid}`;
+          const idx = list.findIndex(m => m.id === streamId);
+          if (idx >= 0) {
+            const updated = [...list];
+            updated[idx] = { ...updated[idx], id: `complete-${Date.now()}` };
+            next.set(sid, updated);
+          }
+          return next;
+        });
+      }
     }
   }, []);
 

@@ -30,7 +30,7 @@ export interface WsMessage {
 }
 
 export interface WsServerMessage {
-  type: 'output' | 'status' | 'sessions' | 'message' | 'error';
+  type: 'output' | 'status' | 'sessions' | 'message' | 'error' | 'stream' | 'tool' | 'turn_complete';
   sessionId?: string;
   data?: string;
   status?: Session['status'];
@@ -38,4 +38,8 @@ export interface WsServerMessage {
   message?: ChatMessage;
   error?: string;
   timestamp?: string;
+  // stream-specific fields
+  text?: string;
+  stopReason?: string;
+  tool?: { title?: string; toolCallId?: string; status?: string };
 }
