@@ -1,13 +1,20 @@
 import { EventEmitter } from 'events';
 import * as pty from 'node-pty';
 import { homedir } from 'os';
+import { execSync } from 'child_process';
 
 interface Terminal {
   id: string;
   pty: pty.IPty;
   cwd: string;
   createdAt: string;
+  tmuxSession: string; // tmux session name for `tmux attach -t <name>`
 }
+
+// Check if tmux is available
+const TMUX_PATH = (() => {
+  try { return execSync('which tmux', { encoding: 'utf8' }).trim(); } catch { return null; }
+})();
 
 class TerminalManager extends EventEmitter {
   private terminals = new Map<string, Terminal>();
@@ -17,11 +24,23 @@ class TerminalManager extends EventEmitter {
       return this.terminals.get(id)!;
     }
 
-    const shell = process.env.SHELL || '/bin/zsh';
     const resolvedCwd = cwd || homedir();
+    // Use a short, readable tmux session name
+    const tmuxName = `cr-${id.replace('term-', '')}`;
 
     let term: pty.IPty;
-    try {
+    if (TMUX_PATH) {
+      // Spawn inside tmux so the user can `tmux attach -t <name>` from their laptop
+      term = pty.spawn(TMUX_PATH, ['new-session', '-s', tmuxName, '-x', '80', '-y', '24'], {
+        name: 'xterm-256color',
+        cols: 80,
+        rows: 24,
+        cwd: resolvedCwd,
+        env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+      });
+    } else {
+      // Fallback: bare shell (no sharing)
+      const shell = process.env.SHELL || '/bin/zsh';
       term = pty.spawn(shell, [], {
         name: 'xterm-256color',
         cols: 80,
@@ -29,25 +48,6 @@ class TerminalManager extends EventEmitter {
         cwd: resolvedCwd,
         env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
       });
-    } catch {
-      // Fallback: try /bin/bash, then /bin/sh
-      try {
-        term = pty.spawn('/bin/bash', [], {
-          name: 'xterm-256color',
-          cols: 80,
-          rows: 24,
-          cwd: resolvedCwd,
-          env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
-        });
-      } catch {
-        term = pty.spawn('/bin/sh', [], {
-          name: 'xterm-256color',
-          cols: 80,
-          rows: 24,
-          cwd: resolvedCwd,
-          env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
-        });
-      }
     }
 
     const terminal: Terminal = {
@@ -55,6 +55,7 @@ class TerminalManager extends EventEmitter {
       pty: term,
       cwd: resolvedCwd,
       createdAt: new Date().toISOString(),
+      tmuxSession: TMUX_PATH ? tmuxName : '',
     };
 
     term.onData((data) => {
@@ -101,6 +102,7 @@ class TerminalManager extends EventEmitter {
       id: t.id,
       cwd: t.cwd,
       createdAt: t.createdAt,
+      tmuxSession: t.tmuxSession,
     }));
   }
 }

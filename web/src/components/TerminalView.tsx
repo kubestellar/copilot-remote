@@ -16,6 +16,7 @@ export function TerminalView({ onBack }: Props) {
   const wsRef = useRef<WebSocket | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [termId, setTermId] = useState<string | null>(null);
+  const [tmuxSession, setTmuxSession] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
 
   const connect = useCallback((id: string) => {
@@ -124,6 +125,7 @@ export function TerminalView({ onBack }: Props) {
       .then(r => r.json())
       .then(data => {
         setTermId(data.id);
+        setTmuxSession(data.tmuxSession || null);
         connect(data.id);
       })
       .catch(err => console.error('Failed to create terminal:', err));
@@ -164,6 +166,7 @@ export function TerminalView({ onBack }: Props) {
           }).catch(() => {});
         }
         setTermId(data.id);
+        setTmuxSession(data.tmuxSession || null);
         connect(data.id);
       })
       .catch(err => console.error('Failed to create terminal:', err));
@@ -210,6 +213,15 @@ export function TerminalView({ onBack }: Props) {
           width: 8, height: 8, borderRadius: '50%',
           bg: connected ? 'success.fg' : 'danger.fg',
         }} />
+        {tmuxSession ? (
+          <Text sx={{ fontSize: 0, color: 'fg.muted', fontFamily: 'mono' }}>
+            tmux attach -t {tmuxSession}
+          </Text>
+        ) : termId ? (
+          <Text sx={{ fontSize: 0, color: 'fg.muted', fontFamily: 'mono' }}>
+            {termId}
+          </Text>
+        ) : null}
         <Box sx={{ flex: 1 }} />
         <IconButton
           icon={PlusIcon}

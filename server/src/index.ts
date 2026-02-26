@@ -234,7 +234,7 @@ app.post('/api/terminals', (req, res) => {
     const { cwd } = req.body || {};
     const id = `term-${Date.now()}`;
     const terminal = terminalManager.create(id, cwd);
-    res.status(201).json({ id: terminal.id, cwd: terminal.cwd, createdAt: terminal.createdAt });
+    res.status(201).json({ id: terminal.id, cwd: terminal.cwd, createdAt: terminal.createdAt, tmuxSession: terminal.tmuxSession });
   } catch (err: any) {
     console.error('[Terminal] Failed to create:', err.message);
     res.status(500).json({ error: err.message });
