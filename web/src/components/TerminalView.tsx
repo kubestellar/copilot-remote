@@ -172,9 +172,13 @@ export function TerminalView({ onBack }: Props) {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       const data = await res.json();
-      // Filter out sessions already attached in our tabs
-      const attached = new Set(tabsRef.current.map(t => t.tmuxSession));
-      setTmuxSessions((data as string[]).filter(s => !attached.has(s)));
+      // Filter out sessions that have an active (connected) tab
+      const activeAttached = new Set(
+        tabsRef.current
+          .filter(t => t.tmuxSession && termInstances.get(t.id)?.connected)
+          .map(t => t.tmuxSession)
+      );
+      setTmuxSessions((data as string[]).filter(s => !activeAttached.has(s)));
     } catch (err) {
       console.error('Failed to fetch tmux sessions:', err);
       setTmuxSessions([]);
