@@ -5,6 +5,7 @@ import { URL } from 'url';
 import { getOrCreateToken, authMiddleware, validateWsToken } from './auth.js';
 import { sessionManager } from './session-manager.js';
 import { acpManager } from './acp-manager.js';
+import { terminalManager } from './terminal-manager.js';
 import { listHistoricalSessions, getSessionDetail, getSessionMessages } from './session-store.js';
 import { getAllMeta, updateMeta, addTag, removeTag } from './session-meta.js';
 import type { WsMessage, WsServerMessage } from './types.js';
@@ -118,7 +119,7 @@ app.post('/api/sessions/:id/send', async (req, res) => {
 });
 
 // WebSocket
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ noServer: true });
 
 // Track subscriptions
 const subscriptions = new Map<WebSocket, Set<string>>();
@@ -221,6 +222,103 @@ acpManager.on('turn_complete', (sessionId: string, stopReason: string) => {
 
 acpManager.on('error', (sessionId: string, err: Error) => {
   broadcast(sessionId, { type: 'error', sessionId, error: err.message, timestamp: new Date().toISOString() });
+});
+
+// Terminal REST endpoints
+app.get('/api/terminals', (_req, res) => {
+  res.json(terminalManager.list());
+});
+
+app.post('/api/terminals', (req, res) => {
+  try {
+    const { cwd } = req.body || {};
+    const id = `term-${Date.now()}`;
+    const terminal = terminalManager.create(id, cwd);
+    res.status(201).json({ id: terminal.id, cwd: terminal.cwd, createdAt: terminal.createdAt });
+  } catch (err: any) {
+    console.error('[Terminal] Failed to create:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/terminals/:id', (req, res) => {
+  const killed = terminalManager.destroy(req.params.id);
+  res.json({ killed });
+});
+
+// Terminal WebSocket — separate path for raw PTY I/O
+const termWss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url || '', `http://localhost:${PORT}`);
+  const token = url.searchParams.get('token') || undefined;
+
+  if (!validateWsToken(token)) {
+    socket.destroy();
+    return;
+  }
+
+  if (url.pathname === '/ws/terminal') {
+    termWss.handleUpgrade(req, socket, head, (ws) => {
+      termWss.emit('connection', ws, req);
+    });
+  } else if (url.pathname === '/ws') {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+  } else {
+    socket.destroy();
+  }
+});
+
+termWss.on('connection', (ws, req) => {
+  const url = new URL(req.url || '', `http://localhost:${PORT}`);
+  const termId = url.searchParams.get('id') || undefined;
+
+  if (!termId) {
+    ws.close(4002, 'Terminal id required');
+    return;
+  }
+
+  // Create terminal if it doesn't exist
+  terminalManager.create(termId);
+
+  // Forward PTY output → WebSocket
+  const onData = (id: string, data: string) => {
+    if (id === termId && ws.readyState === WebSocket.OPEN) {
+      ws.send(data);
+    }
+  };
+  const onExit = (id: string, exitCode: number) => {
+    if (id === termId && ws.readyState === WebSocket.OPEN) {
+      ws.send(`\r\n[Process exited with code ${exitCode}]\r\n`);
+      ws.close(1000);
+    }
+  };
+
+  terminalManager.on('data', onData);
+  terminalManager.on('exit', onExit);
+
+  // WebSocket input → PTY
+  ws.on('message', (raw) => {
+    const msg = raw.toString();
+    // Check for resize messages (JSON)
+    try {
+      const parsed = JSON.parse(msg);
+      if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
+        terminalManager.resize(termId, parsed.cols, parsed.rows);
+        return;
+      }
+    } catch {
+      // Not JSON — raw terminal input
+    }
+    terminalManager.write(termId, msg);
+  });
+
+  ws.on('close', () => {
+    terminalManager.removeListener('data', onData);
+    terminalManager.removeListener('exit', onExit);
+  });
 });
 
 // Start

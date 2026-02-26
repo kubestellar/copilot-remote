@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Box, Text } from '@primer/react';
+import { Box, Text, UnderlineNav } from '@primer/react';
+import { TerminalIcon, CommentDiscussionIcon } from '@primer/octicons-react';
 import { SessionList } from './components/SessionList';
 import { ChatView } from './components/ChatView';
+import { TerminalView } from './components/TerminalView';
 import { ConnectionStatus } from './components/ConnectionStatus';
 import { NewSessionDialog } from './components/NewSessionDialog';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -10,6 +12,7 @@ import { api } from './lib/api';
 import type { WsMessage, ChatMessage } from './types';
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState<'sessions' | 'terminal'>('sessions');
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     () => localStorage.getItem('copilot-remote-active-session')
   );
@@ -161,45 +164,69 @@ export default function App() {
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bg: 'canvas.default' }}>
-      <Box sx={{ p: 3, borderBottom: '1px solid', borderColor: 'border.default', display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Text sx={{ fontWeight: 'bold', fontSize: 2, color: 'fg.default' }}>⚡ Copilot Remote</Text>
-        <Box sx={{ flex: 1 }} />
-        <ConnectionStatus connected={connected} />
+      <Box sx={{ px: 3, pt: 2, borderBottom: '1px solid', borderColor: 'border.default' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+          <Text sx={{ fontWeight: 'bold', fontSize: 2, color: 'fg.default' }}>⚡ Copilot Remote</Text>
+          <Box sx={{ flex: 1 }} />
+          <ConnectionStatus connected={connected} />
+        </Box>
+        <UnderlineNav aria-label="Main navigation">
+          <UnderlineNav.Item
+            aria-current={activeTab === 'sessions' ? 'page' : undefined}
+            onClick={() => setActiveTab('sessions')}
+            icon={CommentDiscussionIcon}
+          >
+            Sessions
+          </UnderlineNav.Item>
+          <UnderlineNav.Item
+            aria-current={activeTab === 'terminal' ? 'page' : undefined}
+            onClick={() => setActiveTab('terminal')}
+            icon={TerminalIcon}
+          >
+            Terminal
+          </UnderlineNav.Item>
+        </UnderlineNav>
       </Box>
 
-      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
-        {(!isMobile || showSidebar) && (
-          <Box sx={{ width: isMobile ? '100%' : 300, minWidth: isMobile ? undefined : 250, borderRight: isMobile ? 'none' : '1px solid', borderColor: 'border.default', overflowY: 'auto' }}>
-            <SessionList
-              sessions={sessions}
-              loading={loading}
-              error={error}
-              activeId={activeSessionId}
-              onSelect={handleSelectSession}
-              onNew={handleNewSession}
-              onRefresh={refresh}
-              onEditingChange={setPaused}
-            />
-          </Box>
-        )}
-        {(!isMobile || !showSidebar) && (
-          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
-            {activeSession ? (
-              <ChatView
-                session={activeSession}
-                messages={activeMessages}
-                onSend={handleSendMessage}
-                onResume={handleResumeSession}
-                onBack={isMobile ? () => setShowSidebar(true) : undefined}
+      {activeTab === 'sessions' ? (
+        <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+          {(!isMobile || showSidebar) && (
+            <Box sx={{ width: isMobile ? '100%' : 300, minWidth: isMobile ? undefined : 250, borderRight: isMobile ? 'none' : '1px solid', borderColor: 'border.default', overflowY: 'auto' }}>
+              <SessionList
+                sessions={sessions}
+                loading={loading}
+                error={error}
+                activeId={activeSessionId}
+                onSelect={handleSelectSession}
+                onNew={handleNewSession}
+                onRefresh={refresh}
+                onEditingChange={setPaused}
               />
-            ) : (
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-                <Text sx={{ color: 'fg.muted', fontSize: 1 }}>Select a session or create a new one</Text>
-              </Box>
-            )}
-          </Box>
-        )}
-      </Box>
+            </Box>
+          )}
+          {(!isMobile || !showSidebar) && (
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
+              {activeSession ? (
+                <ChatView
+                  session={activeSession}
+                  messages={activeMessages}
+                  onSend={handleSendMessage}
+                  onResume={handleResumeSession}
+                  onBack={isMobile ? () => setShowSidebar(true) : undefined}
+                />
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+                  <Text sx={{ color: 'fg.muted', fontSize: 1 }}>Select a session or create a new one</Text>
+                </Box>
+              )}
+            </Box>
+          )}
+        </Box>
+      ) : (
+        <Box sx={{ flex: 1, minHeight: 0 }}>
+          <TerminalView onBack={isMobile ? () => setActiveTab('sessions') : undefined} />
+        </Box>
+      )}
 
       {showNewSession && (
         <NewSessionDialog
