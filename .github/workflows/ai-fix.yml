@@ -23,4 +23,4 @@ jobs:
     with:
       issue_number: ${{ github.event.inputs.issue_number || '' }}
     secrets:
-      token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+      token: ${{ secrets.ORG_TOKEN }}
