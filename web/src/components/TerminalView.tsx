@@ -420,8 +420,8 @@ export function TerminalView({ onBack }: Props) {
           <ActionMenu.Anchor>
             <IconButton icon={LinkIcon} aria-label="Attach tmux session" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
           </ActionMenu.Anchor>
-          <ActionMenu.Overlay>
-            <ActionList>
+          <ActionMenu.Overlay sx={{ bg: 'canvas.overlay', borderColor: 'border.default', boxShadow: 'shadow.large' }}>
+            <ActionList sx={{ bg: 'canvas.overlay' }}>
               <ActionList.GroupHeading>Attach tmux session</ActionList.GroupHeading>
               {tmuxSessions.length === 0 ? (
                 <ActionList.Item disabled>No sessions found</ActionList.Item>
@@ -440,8 +440,8 @@ export function TerminalView({ onBack }: Props) {
           <ActionMenu.Anchor>
             <IconButton icon={PlusIcon} aria-label="New terminal" variant="invisible" size="small" sx={{ mx: 1, flexShrink: 0, color: 'success.fg' }} />
           </ActionMenu.Anchor>
-          <ActionMenu.Overlay>
-            <ActionList>
+          <ActionMenu.Overlay sx={{ bg: 'canvas.overlay', borderColor: 'border.default', boxShadow: 'shadow.large' }}>
+            <ActionList sx={{ bg: 'canvas.overlay' }}>
               <ActionList.GroupHeading>New terminal</ActionList.GroupHeading>
               {aiClis.map(cli => (
                 <ActionList.Item key={cli.name} onSelect={() => addTab(cli.name)}>
