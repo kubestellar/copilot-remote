@@ -57,9 +57,20 @@ export function TerminalView({ onBack }: Props) {
   const [tabs, setTabs] = useState<TermTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [tileMode, setTileMode] = useState(false);
+  const [fontReady, setFontReady] = useState(false);
   const singleRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
+
+  // Preload terminal font before creating any xterm instances
+  useEffect(() => {
+    document.fonts.load('14px "MesloLGS NF"').then(() => {
+      setFontReady(true);
+    }).catch(() => {
+      // Font not available — proceed with fallback
+      setFontReady(true);
+    });
+  }, []);
 
   const createTermConnection = useCallback((tabId: string, container: HTMLDivElement) => {
     // Clean up if exists
@@ -78,7 +89,9 @@ export function TerminalView({ onBack }: Props) {
 
     container.innerHTML = '';
     term.open(container);
-    setTimeout(() => { try { fitAddon.fit(); } catch {} }, 50);
+    setTimeout(() => {
+      try { fitAddon.fit(); } catch {}
+    }, 50);
 
     const ws = new WebSocket(`${wsUrl}/ws/terminal?token=${token}&id=${tabId}`);
     const inst = { term, fitAddon, ws, connected: false, container };
@@ -266,7 +279,7 @@ export function TerminalView({ onBack }: Props) {
 
   // Mount active terminal to single container (non-tile mode)
   useEffect(() => {
-    if (tileMode || !activeTabId || !singleRef.current) return;
+    if (!fontReady || tileMode || !activeTabId || !singleRef.current) return;
     const inst = termInstances.get(activeTabId);
     if (inst && inst.container === singleRef.current) {
       // Already mounted here — just refit
@@ -284,7 +297,7 @@ export function TerminalView({ onBack }: Props) {
       // New terminal — connect
       createTermConnection(activeTabId, singleRef.current);
     }
-  }, [activeTabId, tileMode, tabs.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTabId, tileMode, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle window resize
   useEffect(() => {
@@ -308,7 +321,7 @@ export function TerminalView({ onBack }: Props) {
 
   // Tile ref callback — mount terminal into tile container
   const tileRefCallback = useCallback((el: HTMLDivElement | null, tabId: string) => {
-    if (!el || !tileMode) return;
+    if (!el || !tileMode || !fontReady) return;
     const inst = termInstances.get(tabId);
     if (inst) {
       if (inst.container !== el) {
@@ -320,7 +333,7 @@ export function TerminalView({ onBack }: Props) {
     } else {
       createTermConnection(tabId, el);
     }
-  }, [tileMode, createTermConnection]);
+  }, [tileMode, fontReady, createTermConnection]);
 
   // Refit tiles when entering tile mode
   useEffect(() => {
@@ -405,11 +418,11 @@ export function TerminalView({ onBack }: Props) {
         )}
         <ActionMenu>
           <ActionMenu.Anchor>
-            <IconButton icon={LinkIcon} aria-label="Attach tmux session" variant="invisible" size="small" sx={{ flexShrink: 0 }} onClick={fetchTmuxSessions} />
+            <IconButton icon={LinkIcon} aria-label="Attach tmux session" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
           </ActionMenu.Anchor>
           <ActionMenu.Overlay>
             <ActionList>
-              <ActionList.GroupHeading as="h3">Attach tmux session</ActionList.GroupHeading>
+              <ActionList.GroupHeading>Attach tmux session</ActionList.GroupHeading>
               {tmuxSessions.length === 0 ? (
                 <ActionList.Item disabled>No sessions found</ActionList.Item>
               ) : (
@@ -425,11 +438,11 @@ export function TerminalView({ onBack }: Props) {
         </ActionMenu>
         <ActionMenu>
           <ActionMenu.Anchor>
-            <IconButton icon={PlusIcon} aria-label="New terminal" variant="invisible" size="small" sx={{ mx: 1, flexShrink: 0 }} />
+            <IconButton icon={PlusIcon} aria-label="New terminal" variant="invisible" size="small" sx={{ mx: 1, flexShrink: 0, color: 'success.fg' }} />
           </ActionMenu.Anchor>
           <ActionMenu.Overlay>
             <ActionList>
-              <ActionList.GroupHeading as="h3">New terminal</ActionList.GroupHeading>
+              <ActionList.GroupHeading>New terminal</ActionList.GroupHeading>
               {aiClis.map(cli => (
                 <ActionList.Item key={cli.name} onSelect={() => addTab(cli.name)}>
                   {cli.name === 'copilot' ? '🤖' : '🧠'} {cli.name}
