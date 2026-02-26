@@ -6,6 +6,18 @@ import { Box, IconButton, Text, ActionMenu, ActionList } from '@primer/react';
 import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon } from '@primer/octicons-react';
 import '@xterm/xterm/css/xterm.css';
 
+/* Constrain xterm inside tile cells */
+const tileXtermStyles = document.createElement('style');
+tileXtermStyles.textContent = `
+  .tile-xterm-container .xterm { height: 100% !important; width: 100% !important; }
+  .tile-xterm-container .xterm-viewport { overflow: hidden !important; }
+  .tile-xterm-container .xterm-screen { width: 100% !important; }
+`;
+if (!document.head.querySelector('[data-tile-xterm]')) {
+  tileXtermStyles.setAttribute('data-tile-xterm', '');
+  document.head.appendChild(tileXtermStyles);
+}
+
 interface TermTab {
   id: string;
   tmuxSession: string;
@@ -590,35 +602,36 @@ export function TerminalView({ onBack }: Props) {
 
       {/* Terminal area */}
       {tileMode && hasChecked ? (
-        /* Tile grid */
-        <Box sx={{
+        /* Tile grid — native divs to avoid Primer sx interference with CSS Grid */
+        <div style={{
           flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'grid',
           gridTemplateColumns: `repeat(${tileCols}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${Math.ceil(checkedTabs.length / tileCols)}, minmax(0, 1fr))`,
-          gap: '1px', bg: 'border.default', width: '100%',
+          gap: '2px', background: '#30363d', width: '100%',
         }}>
           {checkedTabs.map(tab => (
-            <Box key={tab.id} sx={{ display: 'flex', flexDirection: 'column', bg: '#0d1117', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
-              <Box sx={{ px: 2, py: '3px', bg: 'canvas.subtle', borderBottom: '1px solid', borderColor: 'border.muted', display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box sx={{ width: 6, height: 6, borderRadius: '50%', bg: termInstances.get(tab.id)?.connected ? 'success.fg' : 'danger.fg' }} />
-                <Text sx={{ fontSize: '10px', fontFamily: 'mono', color: 'fg.muted', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div key={tab.id} style={{ display: 'flex', flexDirection: 'column', background: '#0d1117', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '3px 8px', background: '#161b22', borderBottom: '1px solid #21262d', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: termInstances.get(tab.id)?.connected ? '#3fb950' : '#f85149' }} />
+                <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {tab.name}
-                </Text>
+                </span>
                 {tab.tmuxSession && (
-                  <Text sx={{ fontSize: '9px', color: 'fg.subtle', fontFamily: 'mono', ml: 'auto', flexShrink: 0 }}>
+                  <span style={{ fontSize: 9, color: '#6e7681', fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0 }}>
                     {tab.tmuxSession}
-                  </Text>
+                  </span>
                 )}
-              </Box>
-              <Box sx={{ flex: 1, position: 'relative', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
-                <Box
+              </div>
+              <div style={{ flex: 1, position: 'relative', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+                <div
                   ref={(el: HTMLDivElement | null) => tileRefCallback(el, tab.id)}
-                  sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden', '& .xterm': { height: '100%', width: '100%' }, '& .xterm-viewport': { overflow: 'hidden !important' }, '& .xterm-screen': { width: '100% !important' } }}
+                  className="tile-xterm-container"
+                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden' }}
                 />
-              </Box>
-            </Box>
+              </div>
+            </div>
           ))}
-        </Box>
+        </div>
       ) : (
         /* Single terminal */
         <Box
