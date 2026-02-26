@@ -22,7 +22,13 @@ export default function App() {
       setMessages(prev => {
         const next = new Map(prev);
         const list = next.get(msg.sessionId!) || [];
-        next.set(msg.sessionId!, [...list, msg.message!]);
+        // Deduplicate: skip if same role+content already exists (optimistic or watcher duplicate)
+        const m = msg.message!;
+        const isDup = list.some(existing =>
+          existing.role === m.role && existing.content === m.content
+        );
+        if (isDup) return prev;
+        next.set(msg.sessionId!, [...list, m]);
         return next;
       });
     }
@@ -54,14 +60,32 @@ export default function App() {
     if (isMobile) setShowSidebar(false);
   }, [activeSessionId, subscribe, unsubscribe, isMobile]);
 
+  // Optimistically add user message to the chat
+  const addOptimisticMessage = useCallback((sessionId: string, text: string) => {
+    const msg: ChatMessage = {
+      id: `opt-${Date.now()}`,
+      role: 'user',
+      content: text,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages(prev => {
+      const next = new Map(prev);
+      const list = next.get(sessionId) || [];
+      next.set(sessionId, [...list, msg]);
+      return next;
+    });
+  }, []);
+
   const handleSendMessage = useCallback((text: string) => {
     if (activeSessionId) {
+      addOptimisticMessage(activeSessionId, text);
       sendInput(activeSessionId, text);
     }
-  }, [activeSessionId, sendInput]);
+  }, [activeSessionId, sendInput, addOptimisticMessage]);
 
   const handleResumeSession = useCallback(async (sessionId: string, prompt?: string) => {
     try {
+      if (prompt) addOptimisticMessage(sessionId, prompt);
       const session = await api.createSession({ resume: sessionId, prompt });
       refresh();
       handleSelectSession(session.id);
