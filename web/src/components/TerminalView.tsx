@@ -347,7 +347,11 @@ export function TerminalView({ onBack }: Props) {
     return () => clearTimeout(timer);
   }, [tileMode, checkedTabs.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const tileCols = checkedTabs.length <= 2 ? checkedTabs.length : checkedTabs.length <= 4 ? 2 : 3;
+  // Dynamic grid: 1→1, 2→2, 3-4→2, 5-6→3, 7-9→3, 10+→4
+  const tileCols = checkedTabs.length <= 2 ? checkedTabs.length
+    : checkedTabs.length <= 4 ? 2
+    : checkedTabs.length <= 9 ? 3
+    : 4;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

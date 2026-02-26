@@ -48,7 +48,7 @@ class TerminalManager extends EventEmitter {
       term = pty.spawn(TMUX_PATH, [
         'new-session', '-s', tmuxName, '-x', '80', '-y', '24',
         ';', 'set', '-g', 'mouse', 'on',
-        ';', 'set', '-g', 'window-size', 'latest',
+        ';', 'set', '-g', 'window-size', 'largest',
         ';', 'set', '-g', 'aggressive-resize', 'on',
       ], {
         name: 'xterm-256color',
@@ -113,7 +113,7 @@ class TerminalManager extends EventEmitter {
     const term = pty.spawn(TMUX_PATH, [
       'new-session', '-s', groupName, '-t', tmuxSession,
       ';', 'set', '-g', 'mouse', 'on',
-      ';', 'set', '-g', 'window-size', 'latest',
+      ';', 'set', '-g', 'window-size', 'largest',
       ';', 'set', '-g', 'aggressive-resize', 'on',
     ], {
       name: 'xterm-256color',
@@ -184,6 +184,12 @@ class TerminalManager extends EventEmitter {
     const t = this.terminals.get(id);
     if (!t) return false;
     t.pty.resize(cols, rows);
+    // Also force tmux to resize its window to match
+    if (TMUX_PATH && t.tmuxSession) {
+      try {
+        execSync(`${TMUX_PATH} resize-window -t ${t.tmuxSession} -x ${cols} -y ${rows}`, { stdio: 'ignore' });
+      } catch { /* session may not exist or resize not needed */ }
+    }
     return true;
   }
 
