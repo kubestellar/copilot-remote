@@ -8,10 +8,11 @@ interface Terminal {
   pty: pty.IPty;
   cwd: string;
   createdAt: string;
-  tmuxSession: string; // tmux session name for `tmux attach -t <name>`
+  tmuxSession: string;
+  lastCommand: string;
+  inputBuffer: string;
 }
 
-// Check if tmux is available
 const TMUX_PATH = (() => {
   try { return execSync('which tmux', { encoding: 'utf8' }).trim(); } catch { return null; }
 })();
@@ -25,13 +26,17 @@ class TerminalManager extends EventEmitter {
     }
 
     const resolvedCwd = cwd || homedir();
-    // Use a short, readable tmux session name
     const tmuxName = `cr-${id.replace('term-', '')}`;
 
     let term: pty.IPty;
     if (TMUX_PATH) {
-      // Spawn inside tmux so the user can `tmux attach -t <name>` from their laptop
-      term = pty.spawn(TMUX_PATH, ['new-session', '-s', tmuxName, '-x', '80', '-y', '24'], {
+      // Spawn inside tmux with mouse, aggressive-resize, window-size latest
+      term = pty.spawn(TMUX_PATH, [
+        'new-session', '-s', tmuxName, '-x', '80', '-y', '24',
+        ';', 'set', '-g', 'mouse', 'on',
+        ';', 'set', '-g', 'window-size', 'latest',
+        ';', 'set', '-g', 'aggressive-resize', 'on',
+      ], {
         name: 'xterm-256color',
         cols: 80,
         rows: 24,
@@ -39,7 +44,6 @@ class TerminalManager extends EventEmitter {
         env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
       });
     } else {
-      // Fallback: bare shell (no sharing)
       const shell = process.env.SHELL || '/bin/zsh';
       term = pty.spawn(shell, [], {
         name: 'xterm-256color',
@@ -56,6 +60,8 @@ class TerminalManager extends EventEmitter {
       cwd: resolvedCwd,
       createdAt: new Date().toISOString(),
       tmuxSession: TMUX_PATH ? tmuxName : '',
+      lastCommand: '',
+      inputBuffer: '',
     };
 
     term.onData((data) => {
@@ -75,6 +81,22 @@ class TerminalManager extends EventEmitter {
     const t = this.terminals.get(id);
     if (!t) return false;
     t.pty.write(data);
+
+    // Track commands: accumulate input, capture on Enter
+    for (const ch of data) {
+      if (ch === '\r' || ch === '\n') {
+        const cmd = t.inputBuffer.trim();
+        if (cmd) {
+          t.lastCommand = cmd;
+          this.emit('command', id, cmd);
+        }
+        t.inputBuffer = '';
+      } else if (ch === '\x7f' || ch === '\b') {
+        t.inputBuffer = t.inputBuffer.slice(0, -1);
+      } else if (ch.charCodeAt(0) >= 32) {
+        t.inputBuffer += ch;
+      }
+    }
     return true;
   }
 
@@ -103,6 +125,7 @@ class TerminalManager extends EventEmitter {
       cwd: t.cwd,
       createdAt: t.createdAt,
       tmuxSession: t.tmuxSession,
+      lastCommand: t.lastCommand,
     }));
   }
 }

@@ -298,14 +298,20 @@ termWss.on('connection', (ws, req) => {
       ws.close(1000);
     }
   };
+  // Forward command name changes (for tab labels)
+  const onCommand = (id: string, cmd: string) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'command', id, command: cmd }));
+    }
+  };
 
   terminalManager.on('data', onData);
   terminalManager.on('exit', onExit);
+  terminalManager.on('command', onCommand);
 
   // WebSocket input → PTY
   ws.on('message', (raw) => {
     const msg = raw.toString();
-    // Check for resize messages (JSON)
     try {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
@@ -321,6 +327,7 @@ termWss.on('connection', (ws, req) => {
   ws.on('close', () => {
     terminalManager.removeListener('data', onData);
     terminalManager.removeListener('exit', onExit);
+    terminalManager.removeListener('command', onCommand);
   });
 });
 
