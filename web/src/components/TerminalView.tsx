@@ -32,7 +32,7 @@ function getServerUrls() {
 const TERM_OPTS: ConstructorParameters<typeof Terminal>[0] = {
   cursorBlink: true,
   fontSize: 14,
-  fontFamily: '"Cascadia Code", "Fira Code", "SF Mono", monospace',
+  fontFamily: '"MesloLGS NF", "Cascadia Code", "Fira Code", "SF Mono", monospace',
   theme: {
     background: '#0d1117',
     foreground: '#e6edf3',
@@ -215,18 +215,44 @@ export function TerminalView({ onBack }: Props) {
     setTabs(prev => prev.map(t => t.id === id ? { ...t, checked: !t.checked } : t));
   }, []);
 
-  // Create first tab on mount — auto-launch first available AI CLI
+  // On mount: restore existing terminals from server, or show CLI chooser
   const mountedRef = useRef(false);
   useEffect(() => {
     if (mountedRef.current) return;
     mountedRef.current = true;
-    // Wait for aiClis to load, then create with preferred CLI
     const { token, serverUrl } = getServerUrls();
-    fetch(`${serverUrl}/api/ai-clis`, { headers: { 'Authorization': `Bearer ${token}` } })
+
+    // Try to restore existing terminals first
+    fetch(`${serverUrl}/api/terminals`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(r => r.json())
-      .then((clis: { name: string }[]) => {
-        const preferred = clis.length > 0 ? clis[0].name : undefined;
-        addTab(preferred);
+      .then((existing: { id: string; tmuxSession: string; lastCommand: string }[]) => {
+        if (existing.length > 0) {
+          // Restore tabs for existing terminals
+          const restored: TermTab[] = existing.map((t, i) => ({
+            id: t.id,
+            tmuxSession: t.tmuxSession || '',
+            name: t.lastCommand || t.tmuxSession || `Shell ${i + 1}`,
+            checked: false,
+          }));
+          setTabs(restored);
+          setActiveTabId(restored[0].id);
+        } else {
+          // No existing terminals — fetch AI CLIs and show chooser or auto-create
+          fetch(`${serverUrl}/api/ai-clis`, { headers: { 'Authorization': `Bearer ${token}` } })
+            .then(r => r.json())
+            .then((clis: { name: string }[]) => {
+              if (clis.length > 1) {
+                // Multiple CLIs — don't auto-launch, let user choose from + menu
+                // Create a plain shell tab so there's something visible
+                addTab();
+              } else if (clis.length === 1) {
+                addTab(clis[0].name);
+              } else {
+                addTab();
+              }
+            })
+            .catch(() => addTab());
+        }
       })
       .catch(() => addTab());
     return () => {
@@ -278,6 +304,7 @@ export function TerminalView({ onBack }: Props) {
 
   const checkedTabs = tabs.filter(t => t.checked);
   const hasChecked = checkedTabs.length > 0;
+  const activeTab = tabs.find(t => t.id === activeTabId);
 
   // Tile ref callback — mount terminal into tile container
   const tileRefCallback = useCallback((el: HTMLDivElement | null, tabId: string) => {
@@ -416,6 +443,22 @@ export function TerminalView({ onBack }: Props) {
           </ActionMenu.Overlay>
         </ActionMenu>
       </Box>
+
+      {/* Tmux info bar */}
+      {!tileMode && activeTab?.tmuxSession && (
+        <Box sx={{ px: 2, py: '3px', bg: 'canvas.inset', borderBottom: '1px solid', borderColor: 'border.muted', display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Text sx={{ fontSize: '11px', color: 'fg.muted', fontFamily: 'mono' }}>
+            tmux attach -t {activeTab.tmuxSession}
+          </Text>
+          <Box
+            as="button"
+            onClick={() => { navigator.clipboard.writeText(`tmux attach -t ${activeTab.tmuxSession}`); }}
+            sx={{ bg: 'transparent', border: '1px solid', borderColor: 'border.muted', borderRadius: 1, color: 'fg.muted', cursor: 'pointer', px: 1, py: 0, fontSize: '10px', ':hover': { color: 'fg.default', borderColor: 'border.default' } }}
+          >
+            copy
+          </Box>
+        </Box>
+      )}
 
       {/* Terminal area */}
       {tileMode && hasChecked ? (

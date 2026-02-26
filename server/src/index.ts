@@ -304,8 +304,11 @@ termWss.on('connection', (ws, req) => {
     return;
   }
 
-  // Create terminal if it doesn't exist
-  terminalManager.create(termId);
+  // Only reconnect to existing terminals — don't auto-create
+  if (!terminalManager.get(termId)) {
+    ws.close(4003, 'Terminal not found');
+    return;
+  }
 
   // Forward PTY output → WebSocket
   const onData = (id: string, data: string) => {

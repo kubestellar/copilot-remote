@@ -106,7 +106,10 @@ class TerminalManager extends EventEmitter {
 
     // Use new-session -t to create a grouped session that shares windows
     // This avoids blank screen from nested attach and allows independent resize
+    // Must unset TMUX env to avoid "sessions should be nested with care" error
     const groupName = `cr-${id.replace('term-', '')}`;
+    const envNoTmux = { ...process.env, TERM: 'xterm-256color' } as Record<string, string>;
+    delete envNoTmux.TMUX;
     const term = pty.spawn(TMUX_PATH, [
       'new-session', '-s', groupName, '-t', tmuxSession,
       ';', 'set', '-g', 'mouse', 'on',
@@ -117,7 +120,7 @@ class TerminalManager extends EventEmitter {
       cols: 80,
       rows: 24,
       cwd: homedir(),
-      env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+      env: envNoTmux,
     });
 
     const terminal: Terminal = {
