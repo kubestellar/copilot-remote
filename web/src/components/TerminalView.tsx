@@ -514,24 +514,23 @@ export function TerminalView({ onBack }: Props) {
             );
           })}
         </Box>
-        <Box
-          as="button"
+        <button
+          type="button"
           aria-label={tileMode ? 'Single view' : 'Tile checked terminals'}
           title={tileMode ? 'Single view' : 'Tile checked terminals'}
           disabled={!hasChecked}
           onClick={() => setTileMode(m => !m)}
-          sx={{
-            mx: 1, flexShrink: 0, opacity: hasChecked ? 1 : 0.3,
+          style={{
+            margin: '0 4px', flexShrink: 0, opacity: hasChecked ? 1 : 0.3,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, borderRadius: 2, cursor: 'pointer',
-            bg: tileMode ? 'accent.emphasis' : 'transparent',
-            color: tileMode ? 'fg.onEmphasis' : 'fg.muted',
-            border: 'none',
-            ':hover': { bg: tileMode ? 'accent.emphasis' : 'canvas.default', color: 'fg.default' },
+            width: 28, height: 28, borderRadius: 6, cursor: hasChecked ? 'pointer' : 'default',
+            backgroundColor: tileMode ? 'var(--bgColor-accent-emphasis, #316dca)' : 'transparent',
+            color: tileMode ? 'var(--fgColor-onEmphasis, #fff)' : 'var(--fgColor-muted, #768390)',
+            border: 'none', padding: 0,
           }}
         >
           <AppsIcon size={16} />
-        </Box>
+        </button>
         <ActionMenu>
           <ActionMenu.Anchor>
             <IconButton icon={LinkIcon} aria-label="Attach tmux session" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
