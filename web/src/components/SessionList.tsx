@@ -148,22 +148,24 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
                   <Text sx={{ fontSize: 0, fontWeight: session.id === activeId ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                     {displayName(session)}
                   </Text>
-                  <Box
-                    as="button"
-                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, display: 'flex', flexShrink: 0, ':hover': { color: 'fg.default' } }}
-                    onClick={(e: React.MouseEvent) => handleStartRename(e, session)}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0, color: 'inherit' }}
+                    onClick={(e) => handleStartRename(e, session)}
                     aria-label="Rename"
                   >
                     <PencilIcon size={12} />
-                  </Box>
-                  <Box
-                    as="button"
-                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, display: 'flex', flexShrink: 0, ':hover': { color: 'danger.fg' } }}
-                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); onDelete(session.id); }}
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0, color: 'inherit' }}
+                    onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
                     aria-label="Delete session"
                   >
                     <TrashIcon size={12} />
-                  </Box>
+                  </span>
                 </Box>
               )}
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' }}>
@@ -178,13 +180,14 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
                       sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', px: '5px', borderRadius: '8px', fontSize: '10px', fontWeight: 600, bg: style.bg, color: style.fg, lineHeight: '16px', flexShrink: 0 }}
                     >
                       {tag}
-                      <Box
-                        as="button"
-                        sx={{ bg: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', p: 0, display: 'flex', opacity: 0.7, ':hover': { opacity: 1 } }}
-                        onClick={(e: React.MouseEvent) => handleRemoveTag(e, session.id, tag)}
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'flex', opacity: 0.7 }}
+                        onClick={(e) => handleRemoveTag(e, session.id, tag)}
                       >
                         <XIcon size={8} />
-                      </Box>
+                      </span>
                     </Box>
                   );
                 })}
@@ -200,14 +203,15 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
                     />
                   </Box>
                 ) : (
-                  <Box
-                    as="button"
-                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, display: 'flex', flexShrink: 0, ':hover': { color: 'fg.default' } }}
-                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); setAddingTagId(session.id); }}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0, color: 'inherit' }}
+                    onClick={(e) => { e.stopPropagation(); setAddingTagId(session.id); }}
                     aria-label="Add tag"
                   >
                     <TagIcon size={10} />
-                  </Box>
+                  </span>
                 )}
                 <Text sx={{ color: 'fg.muted', fontSize: '10px', whiteSpace: 'nowrap', flexShrink: 0 }}>
                   <RelativeTime date={new Date(session.updatedAt)} />

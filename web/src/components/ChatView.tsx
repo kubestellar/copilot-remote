@@ -27,7 +27,17 @@ export function ChatView({ session, messages, onSend, onResume, onBack }: Props)
   }, [session.id]);
 
   // Auto-scroll to bottom on new messages
-  const allMessages = useMemo(() => [...historicalMessages, ...messages], [historicalMessages, messages]);
+  // Deduplicate by ID — live messages override historical ones with the same ID
+  const allMessages = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: ChatMessage[] = [];
+    // Add live messages first (they take priority)
+    for (const m of messages) { seen.add(m.id); merged.push(m); }
+    // Prepend historical messages not already in live set
+    const historical: ChatMessage[] = [];
+    for (const m of historicalMessages) { if (!seen.has(m.id)) { seen.add(m.id); historical.push(m); } }
+    return [...historical, ...merged];
+  }, [historicalMessages, messages]);
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
