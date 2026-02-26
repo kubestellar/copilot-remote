@@ -25,7 +25,6 @@ interface TermTab {
   checked: boolean;
 }
 
-// Mutable refs for each terminal's xterm + ws (not in React state to avoid re-renders)
 const termInstances = new Map<string, {
   term: Terminal;
   fitAddon: FitAddon;
@@ -368,10 +367,15 @@ export function TerminalView({ onBack }: Props) {
     setTimeout(() => {
       if (!container.isConnected) return;
       if (inst) {
-        // Restore full font size and re-mount into single container
+        // Restore full font size and move terminal element to single container
+        // Note: term.open() can only be called once; use appendChild to move
         inst.term.options.fontSize = 14;
         container.innerHTML = '';
-        inst.term.open(container);
+        if (inst.term.element) {
+          container.appendChild(inst.term.element);
+        } else {
+          inst.term.open(container);
+        }
         inst.container = container;
         setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
         inst.term.focus();
@@ -441,13 +445,21 @@ export function TerminalView({ onBack }: Props) {
       let pending = 0;
       for (const tab of checked) {
         const el = tileContainerRefs.current.get(tab.id);
-        if (!el || !el.isConnected) { pending++; continue; }
+        if (!el || !el.isConnected) {
+          pending++; continue;
+        }
         const inst = termInstances.get(tab.id);
         if (inst) {
-          if (inst.container === el) continue; // already mounted here
+          if (inst.container === el) continue;
+          // Move terminal element to tile container
+          // Note: term.open() can only be called once; use appendChild to move
           inst.term.options.fontSize = tileFontSize;
           el.innerHTML = '';
-          inst.term.open(el);
+          if (inst.term.element) {
+            el.appendChild(inst.term.element);
+          } else {
+            inst.term.open(el);
+          }
           inst.container = el;
         } else {
           createTermConnection(tab.id, el, tileFontSize);
