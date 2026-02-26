@@ -423,26 +423,37 @@ export function TerminalView({ onBack }: Props) {
       }
       return;
     }
-    // Delay to let the grid containers get layout dimensions
-    const timer = setTimeout(() => {
-      for (const tab of checkedTabs) {
+    let cancelled = false;
+    let retries = 0;
+    const mountTiles = () => {
+      if (cancelled) return;
+      const checked = tabsRef.current.filter(t => t.checked);
+      let pending = 0;
+      for (const tab of checked) {
         const el = tileContainerRefs.current.get(tab.id);
-        if (!el || !el.isConnected) continue;
+        if (!el || !el.isConnected) { pending++; continue; }
+        // Wait for container to have layout dimensions
+        if (el.clientHeight === 0) { pending++; continue; }
         const inst = termInstances.get(tab.id);
         if (inst) {
           inst.term.options.fontSize = tileFontSize;
-          if (inst.container !== el) {
-            el.innerHTML = '';
-            inst.term.open(el);
-            inst.container = el;
-          }
+          el.innerHTML = '';
+          inst.term.open(el);
+          inst.container = el;
           try { inst.fitAddon.fit(); } catch {}
         } else {
           createTermConnection(tab.id, el, tileFontSize);
         }
       }
-    }, 100);
-    return () => clearTimeout(timer);
+      // Retry if some containers aren't ready yet (up to 2 seconds)
+      if (pending > 0 && retries < 20) {
+        retries++;
+        setTimeout(mountTiles, 100);
+      }
+    };
+    // Start mounting after a brief delay for initial DOM layout
+    const timer = setTimeout(mountTiles, 50);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
