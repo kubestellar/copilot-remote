@@ -83,6 +83,9 @@ class TerminalManager extends EventEmitter {
     t.pty.write(data);
 
     // Track commands: accumulate input, capture on Enter
+    // Skip if data contains escape sequences (mouse events, arrow keys, etc.)
+    if (data.includes('\x1b')) return true;
+
     for (const ch of data) {
       if (ch === '\r' || ch === '\n') {
         const cmd = t.inputBuffer.trim();
