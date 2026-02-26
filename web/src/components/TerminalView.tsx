@@ -71,6 +71,7 @@ export function TerminalView({ onBack }: Props) {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [tileMode, setTileMode] = useState(false);
   const [fontReady, setFontReady] = useState(false);
+  const [focusedTileId, setFocusedTileId] = useState<string | null>(null);
   const singleRef = useRef<HTMLDivElement>(null);
   const tileContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const tabsRef = useRef(tabs);
@@ -358,7 +359,7 @@ export function TerminalView({ onBack }: Props) {
     if (!fontReady || tileMode || !activeTabId || !singleRef.current) return;
     const container = singleRef.current;
     const inst = termInstances.get(activeTabId);
-    if (inst && inst.container === container) {
+    if (inst && inst.term.element?.parentElement === container) {
       // Already mounted here — just refit
       setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
       return;
@@ -429,6 +430,7 @@ export function TerminalView({ onBack }: Props) {
   useEffect(() => {
     if (!tileMode || !fontReady) {
       if (!tileMode) {
+        setFocusedTileId(null);
         for (const [, inst] of termInstances) {
           if (inst.term.options.fontSize !== 14) {
             inst.term.options.fontSize = 14;
@@ -439,6 +441,7 @@ export function TerminalView({ onBack }: Props) {
       return;
     }
     let cancelled = false;
+    const focusHandlers: Array<{ el: HTMLElement; handler: () => void }> = [];
     const mountTiles = () => {
       if (cancelled) return;
       const checked = tabsRef.current.filter(t => t.checked);
@@ -450,7 +453,7 @@ export function TerminalView({ onBack }: Props) {
         }
         const inst = termInstances.get(tab.id);
         if (inst) {
-          if (inst.container === el) continue;
+          if (inst.term.element?.parentElement === el) continue;
           // Move terminal element to tile container
           // Note: term.open() can only be called once; use appendChild to move
           inst.term.options.fontSize = tileFontSize;
@@ -464,6 +467,10 @@ export function TerminalView({ onBack }: Props) {
         } else {
           createTermConnection(tab.id, el, tileFontSize);
         }
+        // Track focus on each tile's terminal
+        const handler = () => { if (!cancelled) setFocusedTileId(tab.id); };
+        el.addEventListener('focusin', handler);
+        focusHandlers.push({ el, handler });
       }
       // Retry for refs that haven't connected yet
       if (pending > 0) {
@@ -482,7 +489,12 @@ export function TerminalView({ onBack }: Props) {
     requestAnimationFrame(() => {
       if (!cancelled) mountTiles();
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      for (const { el, handler } of focusHandlers) {
+        el.removeEventListener('focusin', handler);
+      }
+    };
   }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -509,9 +521,9 @@ export function TerminalView({ onBack }: Props) {
                   px: 2, py: '5px',
                   cursor: 'pointer',
                   borderRight: '1px solid', borderColor: 'border.muted',
-                  bg: !tileMode && tab.id === activeTabId ? 'canvas.default' : 'transparent',
-                  borderBottom: !tileMode && tab.id === activeTabId ? '2px solid' : '2px solid transparent',
-                  borderBottomColor: !tileMode && tab.id === activeTabId ? 'accent.fg' : 'transparent',
+                  bg: !tileMode && tab.id === activeTabId ? 'canvas.default' : (tileMode && tab.id === focusedTileId ? 'canvas.default' : 'transparent'),
+                  borderBottom: !tileMode && tab.id === activeTabId ? '2px solid' : (tileMode && tab.id === focusedTileId ? '2px solid' : '2px solid transparent'),
+                  borderBottomColor: !tileMode && tab.id === activeTabId ? 'accent.fg' : (tileMode && tab.id === focusedTileId ? 'accent.fg' : 'transparent'),
                   ':hover': { bg: 'canvas.default' },
                   maxWidth: 200, flexShrink: 0,
                 }}
@@ -627,10 +639,22 @@ export function TerminalView({ onBack }: Props) {
           gap: '2px', background: '#30363d', width: '100%',
         }}>
           {checkedTabs.map(tab => (
-            <div key={tab.id} style={{ display: 'flex', flexDirection: 'column', background: '#0d1117', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
-              <div style={{ padding: '3px 8px', background: '#161b22', borderBottom: '1px solid #21262d', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div key={tab.id} style={{
+              display: 'flex', flexDirection: 'column', background: '#0d1117', minHeight: 0, minWidth: 0, overflow: 'hidden',
+              border: focusedTileId === tab.id ? '2px solid #58a6ff' : '2px solid transparent',
+              borderRadius: focusedTileId === tab.id ? 6 : 0,
+              boxShadow: focusedTileId === tab.id ? '0 0 8px 2px rgba(88,166,255,0.4), inset 0 0 1px rgba(88,166,255,0.3)' : 'none',
+            }}
+              onClick={() => { const inst = termInstances.get(tab.id); if (inst) { inst.term.focus(); setFocusedTileId(tab.id); } }}
+            >
+              <div style={{
+                padding: '3px 8px',
+                background: focusedTileId === tab.id ? '#1f6feb' : '#161b22',
+                borderBottom: focusedTileId === tab.id ? '1px solid #388bfd' : '1px solid #21262d',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: termInstances.get(tab.id)?.connected ? '#3fb950' : '#f85149' }} />
-                <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 10, fontFamily: 'monospace', color: focusedTileId === tab.id ? '#ffffff' : '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {tab.name}
                 </span>
                 {tab.tmuxSession && (
