@@ -592,13 +592,13 @@ export function TerminalView({ onBack }: Props) {
       {tileMode && hasChecked ? (
         /* Tile grid */
         <Box sx={{
-          flex: 1, minHeight: 0, overflow: 'hidden', display: 'grid',
-          gridTemplateColumns: `repeat(${tileCols}, 1fr)`,
-          gridTemplateRows: `repeat(${Math.ceil(checkedTabs.length / tileCols)}, 1fr)`,
-          gap: '1px', bg: 'border.default',
+          flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'grid',
+          gridTemplateColumns: `repeat(${tileCols}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${Math.ceil(checkedTabs.length / tileCols)}, minmax(0, 1fr))`,
+          gap: '1px', bg: 'border.default', width: '100%',
         }}>
           {checkedTabs.map(tab => (
-            <Box key={tab.id} sx={{ display: 'flex', flexDirection: 'column', bg: '#0d1117', minHeight: 0, overflow: 'hidden' }}>
+            <Box key={tab.id} sx={{ display: 'flex', flexDirection: 'column', bg: '#0d1117', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
               <Box sx={{ px: 2, py: '3px', bg: 'canvas.subtle', borderBottom: '1px solid', borderColor: 'border.muted', display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Box sx={{ width: 6, height: 6, borderRadius: '50%', bg: termInstances.get(tab.id)?.connected ? 'success.fg' : 'danger.fg' }} />
                 <Text sx={{ fontSize: '10px', fontFamily: 'mono', color: 'fg.muted', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -612,7 +612,7 @@ export function TerminalView({ onBack }: Props) {
               </Box>
               <Box
                 ref={(el: HTMLDivElement | null) => tileRefCallback(el, tab.id)}
-                sx={{ flex: 1, minHeight: 0, '& .xterm': { height: '100%' }, '& .xterm-viewport': { overflow: 'hidden !important' } }}
+                sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', '& .xterm': { height: '100%', width: '100%' }, '& .xterm-viewport': { overflow: 'hidden !important' }, '& .xterm-screen': { width: '100% !important' } }}
               />
             </Box>
           ))}
