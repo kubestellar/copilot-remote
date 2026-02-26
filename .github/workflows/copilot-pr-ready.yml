@@ -1,0 +1,63 @@
+name: Mark Copilot PRs Ready
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+  check_suite:
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  mark-ready:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'pull_request_target' &&
+      (github.event.pull_request.user.login == 'copilot-swe-agent[bot]' ||
+       github.event.pull_request.user.login == 'Copilot')
+    steps:
+      - name: Wait for Copilot to finish
+        run: sleep 120
+
+      - name: Check if still draft and mark ready
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ORG_TOKEN }}
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            });
+            
+            if (!pr.data.draft) {
+              core.info('PR is already ready for review');
+              return;
+            }
+            
+            // Check if PR has at least 2 commits (plan + implementation)
+            const commits = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            });
+            
+            if (commits.data.length < 2) {
+              core.info('PR only has plan commit, Copilot is still working');
+              return;
+            }
+            
+            core.info(`Marking PR #${context.payload.pull_request.number} as ready for review`);
+            
+            // Use GraphQL to mark as ready (REST API doesn't support this)
+            await github.graphql(`
+              mutation($id: ID!) {
+                markPullRequestReadyForReview(input: { pullRequestId: $id }) {
+                  pullRequest { isDraft }
+                }
+              }
+            `, { id: pr.data.node_id });
+            
+            core.info('PR marked as ready for review');
