@@ -169,8 +169,8 @@ wss.on('connection', (ws, req) => {
           break;
 
       }
-    } catch {
-      // Ignore malformed messages
+    } catch (err) {
+      console.warn('[WS] Malformed message:', err);
     }
   });
 
@@ -342,7 +342,7 @@ termWss.on('connection', (ws, req) => {
         terminalManager.resize(termId, parsed.cols, parsed.rows);
         return;
       }
-    } catch {
+    } catch (_err) {
       // Not JSON — raw terminal input
     }
     terminalManager.write(termId, msg);

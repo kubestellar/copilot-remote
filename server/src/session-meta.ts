@@ -18,7 +18,9 @@ function load(): MetaStore {
     if (existsSync(META_FILE)) {
       return JSON.parse(readFileSync(META_FILE, 'utf-8'));
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    console.warn('[SessionMeta] Failed to load meta file:', err);
+  }
   return {};
 }
 
