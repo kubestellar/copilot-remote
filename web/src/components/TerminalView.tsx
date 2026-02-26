@@ -610,10 +610,12 @@ export function TerminalView({ onBack }: Props) {
                   </Text>
                 )}
               </Box>
-              <Box
-                ref={(el: HTMLDivElement | null) => tileRefCallback(el, tab.id)}
-                sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', '& .xterm': { height: '100%', width: '100%' }, '& .xterm-viewport': { overflow: 'hidden !important' }, '& .xterm-screen': { width: '100% !important' } }}
-              />
+              <Box sx={{ flex: 1, position: 'relative', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+                <Box
+                  ref={(el: HTMLDivElement | null) => tileRefCallback(el, tab.id)}
+                  sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden', '& .xterm': { height: '100%', width: '100%' }, '& .xterm-viewport': { overflow: 'hidden !important' }, '& .xterm-screen': { width: '100% !important' } }}
+                />
+              </Box>
             </Box>
           ))}
         </Box>
