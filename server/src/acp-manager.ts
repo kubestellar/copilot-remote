@@ -10,6 +10,7 @@ interface AcpSession {
   proc: ChildProcess;
   connection: acp.ClientSideConnection;
   status: 'connecting' | 'ready' | 'prompting' | 'dead';
+  streaming: boolean;      // true only after prompt() is called, gates chunk emissions
 }
 
 /**
@@ -53,6 +54,7 @@ class AcpManager extends EventEmitter {
       proc,
       connection: null as any,
       status: 'connecting',
+      streaming: false,
     };
 
     this.sessions.set(sessionId, acpSession);
@@ -73,6 +75,8 @@ class AcpManager extends EventEmitter {
       },
 
       async sessionUpdate(params: any) {
+        // Only emit chunks/tools while actively prompting (skip history replay)
+        if (!acpSession.streaming) return;
         const update = params.update;
         switch (update.sessionUpdate) {
           case 'agent_message_chunk':
@@ -190,6 +194,7 @@ class AcpManager extends EventEmitter {
     }
 
     session.status = 'prompting';
+    session.streaming = true;
     this.emit('prompt_start', sessionId, text);
 
     try {
@@ -198,11 +203,13 @@ class AcpManager extends EventEmitter {
         prompt: [{ type: 'text', text }],
       });
 
+      session.streaming = false;
       session.status = 'ready';
       this.emit('turn_complete', sessionId, result.stopReason);
       return { stopReason: result.stopReason };
 
     } catch (err: any) {
+      session.streaming = false;
       session.status = session.proc?.exitCode === null ? 'ready' : 'dead';
       this.emit('error', sessionId, err);
       throw err;

@@ -148,14 +148,18 @@ wss.on('connection', (ws, req) => {
           break;
         case 'input':
           if (msg.sessionId && msg.text) {
-            // Prefer ACP for streaming
-            acpManager.sendPrompt(msg.sessionId, msg.text).catch((err) => {
-              console.error(`[ACP] Prompt failed for ${msg.sessionId?.slice(0, 8)}: ${err.message}`);
-              // Fall back to session-manager (PTY/resume)
-              const sent = sessionManager.sendInput(msg.sessionId!, msg.text!);
-              if (!sent) {
-                sessionManager.createSession({ resume: msg.sessionId!, prompt: msg.text! });
-              }
+            const sid = msg.sessionId;
+            const text = msg.text;
+            // Use ACP for streaming — it creates its own copilot process
+            acpManager.sendPrompt(sid, text).catch((err) => {
+              console.error(`[ACP] Prompt failed for ${sid.slice(0, 8)}: ${err.message}`);
+              // Notify the web client of the error
+              broadcast(sid, {
+                type: 'error',
+                sessionId: sid,
+                error: `Failed to send: ${err.message}`,
+                timestamp: new Date().toISOString(),
+              });
             });
           }
           break;

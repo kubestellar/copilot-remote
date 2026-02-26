@@ -37,16 +37,10 @@ export function ChatView({ session, messages, onSend, onResume, onBack }: Props)
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
-
-    if (session.status === 'running') {
-      onSend(text);
-    } else {
-      // Resume session with this prompt
-      setResuming(true);
-      onResume(session.id, text);
-    }
+    // Always send via WebSocket — server tries ACP first, falls back to PTY
+    onSend(text);
     setInput('');
-  }, [input, onSend, onResume, session.id, session.status]);
+  }, [input, onSend]);
 
   const handleResume = useCallback(() => {
     setResuming(true);
