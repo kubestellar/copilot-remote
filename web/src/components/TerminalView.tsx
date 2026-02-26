@@ -425,7 +425,6 @@ export function TerminalView({ onBack }: Props) {
   useEffect(() => {
     if (!tileMode || !fontReady) {
       if (!tileMode) {
-        // Restore normal font size when leaving tile mode
         for (const [, inst] of termInstances) {
           if (inst.term.options.fontSize !== 14) {
             inst.term.options.fontSize = 14;
@@ -436,7 +435,6 @@ export function TerminalView({ onBack }: Props) {
       return;
     }
     let cancelled = false;
-    let retries = 0;
     const mountTiles = () => {
       if (cancelled) return;
       const checked = tabsRef.current.filter(t => t.checked);
@@ -444,28 +442,35 @@ export function TerminalView({ onBack }: Props) {
       for (const tab of checked) {
         const el = tileContainerRefs.current.get(tab.id);
         if (!el || !el.isConnected) { pending++; continue; }
-        // Wait for container to have layout dimensions
-        if (el.clientHeight === 0) { pending++; continue; }
         const inst = termInstances.get(tab.id);
         if (inst) {
+          if (inst.container === el) continue; // already mounted here
           inst.term.options.fontSize = tileFontSize;
           el.innerHTML = '';
           inst.term.open(el);
           inst.container = el;
-          try { inst.fitAddon.fit(); } catch {}
         } else {
           createTermConnection(tab.id, el, tileFontSize);
         }
       }
-      // Retry if some containers aren't ready yet (up to 2 seconds)
-      if (pending > 0 && retries < 20) {
-        retries++;
-        setTimeout(mountTiles, 100);
+      // Retry for refs that haven't connected yet
+      if (pending > 0) {
+        setTimeout(() => { if (!cancelled) mountTiles(); }, 100);
       }
+      // Fit all terminals after browser layout resolves
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        for (const tab of checked) {
+          const inst = termInstances.get(tab.id);
+          if (inst) try { inst.fitAddon.fit(); } catch {}
+        }
+      });
     };
-    // Start mounting after a brief delay for initial DOM layout
-    const timer = setTimeout(mountTiles, 50);
-    return () => { cancelled = true; clearTimeout(timer); };
+    // Start after initial DOM commit
+    requestAnimationFrame(() => {
+      if (!cancelled) mountTiles();
+    });
+    return () => { cancelled = true; };
   }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
