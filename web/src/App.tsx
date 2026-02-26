@@ -196,7 +196,7 @@ export default function App() {
             onClick={() => setActiveTab('terminal')}
             icon={TerminalIcon}
           >
-            Terminal
+            Bidirectional
           </UnderlineNav.Item>
         </UnderlineNav>
       </Box>

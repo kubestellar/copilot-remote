@@ -104,8 +104,14 @@ class TerminalManager extends EventEmitter {
     if (this.terminals.has(id)) return this.terminals.get(id)!;
     if (!TMUX_PATH) throw new Error('tmux is not installed');
 
+    // Use new-session -t to create a grouped session that shares windows
+    // This avoids blank screen from nested attach and allows independent resize
+    const groupName = `cr-${id.replace('term-', '')}`;
     const term = pty.spawn(TMUX_PATH, [
-      'attach-session', '-t', tmuxSession,
+      'new-session', '-s', groupName, '-t', tmuxSession,
+      ';', 'set', '-g', 'mouse', 'on',
+      ';', 'set', '-g', 'window-size', 'latest',
+      ';', 'set', '-g', 'aggressive-resize', 'on',
     ], {
       name: 'xterm-256color',
       cols: 80,

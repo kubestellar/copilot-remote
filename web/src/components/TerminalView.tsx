@@ -140,7 +140,7 @@ export function TerminalView({ onBack }: Props) {
       const newTab: TermTab = {
         id: data.id,
         tmuxSession: data.tmuxSession || '',
-        name: aiCli || `Terminal ${tabsRef.current.length + 1}`,
+        name: aiCli || `Shell ${tabsRef.current.length + 1}`,
         checked: false,
       };
       setTabs(prev => [...prev, newTab]);
