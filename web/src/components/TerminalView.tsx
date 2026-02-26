@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Box, IconButton, Text, ActionMenu, ActionList } from '@primer/react';
-import { PlusIcon, XIcon, ArrowLeftIcon, ColumnsIcon, LinkIcon } from '@primer/octicons-react';
+import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon } from '@primer/octicons-react';
 import '@xterm/xterm/css/xterm.css';
 
 interface TermTab {
@@ -74,7 +74,7 @@ export function TerminalView({ onBack }: Props) {
     });
   }, []);
 
-  const createTermConnection = useCallback((tabId: string, container: HTMLDivElement) => {
+  const createTermConnection = useCallback((tabId: string, container: HTMLDivElement, fontSize?: number) => {
     // Clean up if exists
     const existing = termInstances.get(tabId);
     if (existing) {
@@ -85,7 +85,7 @@ export function TerminalView({ onBack }: Props) {
     }
 
     const { token, wsUrl } = getServerUrls();
-    const term = new Terminal(TERM_OPTS);
+    const term = new Terminal({ ...TERM_OPTS, fontSize: fontSize ?? TERM_OPTS.fontSize });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
@@ -344,23 +344,29 @@ export function TerminalView({ onBack }: Props) {
   // Mount active terminal to single container (non-tile mode)
   useEffect(() => {
     if (!fontReady || tileMode || !activeTabId || !singleRef.current) return;
+    const container = singleRef.current;
     const inst = termInstances.get(activeTabId);
-    if (inst && inst.container === singleRef.current) {
+    if (inst && inst.container === container) {
       // Already mounted here — just refit
       setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
       return;
     }
-    if (inst) {
-      // Re-mount existing terminal
-      singleRef.current.innerHTML = '';
-      inst.term.open(singleRef.current);
-      inst.container = singleRef.current;
-      setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
-      inst.term.focus();
-    } else if (tabs.find(t => t.id === activeTabId)) {
-      // New terminal — connect
-      createTermConnection(activeTabId, singleRef.current);
-    }
+    // Use setTimeout to ensure container has layout dimensions before mounting
+    setTimeout(() => {
+      if (!container.isConnected) return;
+      if (inst) {
+        // Restore full font size and re-mount into single container
+        inst.term.options.fontSize = 14;
+        container.innerHTML = '';
+        inst.term.open(container);
+        inst.container = container;
+        setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
+        inst.term.focus();
+      } else if (tabs.find(t => t.id === activeTabId)) {
+        // New terminal — connect
+        createTermConnection(activeTabId, container);
+      }
+    }, 50);
   }, [activeTabId, tileMode, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle window resize
@@ -386,36 +392,56 @@ export function TerminalView({ onBack }: Props) {
   // Tile ref callback — mount terminal into tile container
   const tileRefCallback = useCallback((el: HTMLDivElement | null, tabId: string) => {
     if (!el || !tileMode || !fontReady) return;
-    const inst = termInstances.get(tabId);
-    if (inst) {
-      if (inst.container !== el) {
-        el.innerHTML = '';
-        inst.term.open(el);
-        inst.container = el;
+    setTimeout(() => {
+      if (!el.isConnected) return;
+      const inst = termInstances.get(tabId);
+      if (inst) {
+        inst.term.options.fontSize = tileFontSize;
+        if (inst.container !== el) {
+          el.innerHTML = '';
+          inst.term.open(el);
+          inst.container = el;
+        }
+        setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 100);
+      } else {
+        createTermConnection(tabId, el, tileFontSize);
       }
-      setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 100);
-    } else {
-      createTermConnection(tabId, el);
-    }
-  }, [tileMode, fontReady, createTermConnection]);
+    }, 50);
+  }, [tileMode, fontReady, createTermConnection, tileFontSize]);
 
   // Refit tiles when entering tile mode
   useEffect(() => {
-    if (!tileMode) return;
+    if (!tileMode) {
+      // Restore normal font size when leaving tile mode
+      for (const [, inst] of termInstances) {
+        if (inst.term.options.fontSize !== 14) {
+          inst.term.options.fontSize = 14;
+          try { inst.fitAddon.fit(); } catch {}
+        }
+      }
+      return;
+    }
     const timer = setTimeout(() => {
       for (const tab of checkedTabs) {
         const inst = termInstances.get(tab.id);
-        if (inst) try { inst.fitAddon.fit(); } catch {}
+        if (inst) {
+          inst.term.options.fontSize = tileFontSize;
+          try { inst.fitAddon.fit(); } catch {}
+        }
       }
     }, 150);
     return () => clearTimeout(timer);
-  }, [tileMode, checkedTabs.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tileMode, checkedTabs.length, tileFontSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Dynamic grid: 1→1, 2→2, 3-4→2, 5-6→3, 7-9→3, 10+→4
   const tileCols = checkedTabs.length <= 2 ? checkedTabs.length
     : checkedTabs.length <= 4 ? 2
     : checkedTabs.length <= 9 ? 3
     : 4;
+
+  // Scale font size down in tile mode based on grid density
+  const tileRows = Math.ceil(checkedTabs.length / Math.max(tileCols, 1));
+  const tileFontSize = tileRows <= 1 ? 13 : tileRows <= 2 ? 10 : tileRows <= 3 ? 8 : 7;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -435,6 +461,7 @@ export function TerminalView({ onBack }: Props) {
             return (
               <Box
                 key={tab.id}
+                onClick={() => toggleCheck(tab.id)}
                 sx={{
                   display: 'flex', alignItems: 'center', gap: 1,
                   px: 2, py: '5px',
@@ -455,7 +482,7 @@ export function TerminalView({ onBack }: Props) {
                   style={{ margin: 0, cursor: 'pointer' }}
                 />
                 <Box
-                  onClick={() => { if (!tileMode) setActiveTabId(tab.id); }}
+                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleCheck(tab.id); if (!tileMode) setActiveTabId(tab.id); }}
                   sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, overflow: 'hidden' }}
                 >
                   <Box sx={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, bg: isConnected ? 'success.fg' : 'danger.fg' }} />
@@ -474,16 +501,15 @@ export function TerminalView({ onBack }: Props) {
             );
           })}
         </Box>
-        {hasChecked && (
-          <IconButton
-            icon={ColumnsIcon}
-            aria-label={tileMode ? 'Single view' : 'Tile checked terminals'}
-            variant={tileMode ? 'primary' : 'invisible'}
-            size="small"
-            sx={{ mx: 1, flexShrink: 0 }}
-            onClick={() => setTileMode(!tileMode)}
-          />
-        )}
+        <IconButton
+          icon={AppsIcon}
+          aria-label={tileMode ? 'Single view' : 'Tile checked terminals'}
+          variant={tileMode ? 'primary' : 'invisible'}
+          size="small"
+          disabled={!hasChecked}
+          sx={{ mx: 1, flexShrink: 0, opacity: hasChecked ? 1 : 0.3 }}
+          onClick={() => setTileMode(!tileMode)}
+        />
         <ActionMenu>
           <ActionMenu.Anchor>
             <IconButton icon={LinkIcon} aria-label="Attach tmux session" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
@@ -545,8 +571,9 @@ export function TerminalView({ onBack }: Props) {
       {tileMode && hasChecked ? (
         /* Tile grid */
         <Box sx={{
-          flex: 1, minHeight: 0, display: 'grid',
+          flex: 1, minHeight: 0, overflow: 'hidden', display: 'grid',
           gridTemplateColumns: `repeat(${tileCols}, 1fr)`,
+          gridTemplateRows: `repeat(${Math.ceil(checkedTabs.length / tileCols)}, 1fr)`,
           gap: '1px', bg: 'border.default',
         }}>
           {checkedTabs.map(tab => (
