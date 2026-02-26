@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Box, Text, ActionList, Button, Spinner, Label, RelativeTime, TextInput } from '@primer/react';
-import { PlusIcon, SyncIcon, PencilIcon, XIcon, TagIcon, ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
+import { PlusIcon, SyncIcon, PencilIcon, XIcon, TagIcon, ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@primer/octicons-react';
 import { api } from '../lib/api';
 import type { Session } from '../types';
 
@@ -27,12 +27,13 @@ interface Props {
   error: string | null;
   activeId: string | null;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
   onNew: () => void;
   onRefresh: () => void;
   onEditingChange?: (editing: boolean) => void;
 }
 
-export function SessionList({ sessions, loading, error, activeId, onSelect, onNew, onRefresh, onEditingChange }: Props) {
+export function SessionList({ sessions, loading, error, activeId, onSelect, onDelete, onNew, onRefresh, onEditingChange }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [copilotCollapsed, setCopilotCollapsed] = useState(false);
   const [editName, setEditName] = useState('');
@@ -154,6 +155,14 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onNe
                     aria-label="Rename"
                   >
                     <PencilIcon size={12} />
+                  </Box>
+                  <Box
+                    as="button"
+                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, display: 'flex', flexShrink: 0, ':hover': { color: 'danger.fg' } }}
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); onDelete(session.id); }}
+                    aria-label="Delete session"
+                  >
+                    <TrashIcon size={12} />
                   </Box>
                 </Box>
               )}

@@ -8,6 +8,7 @@ const META_FILE = join(META_DIR, 'session-meta.json');
 export interface SessionMeta {
   name?: string;
   tags?: string[];
+  hidden?: boolean;
 }
 
 type MetaStore = Record<string, SessionMeta>;

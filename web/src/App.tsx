@@ -109,6 +109,19 @@ export default function App() {
     if (isMobile) setShowSidebar(false);
   }, [activeSessionId, subscribe, unsubscribe, isMobile]);
 
+  const handleDeleteSession = useCallback(async (id: string) => {
+    try {
+      await api.killSession(id);
+      if (activeSessionId === id) {
+        setActiveSessionId(null);
+        localStorage.removeItem('copilot-remote-active-session');
+      }
+      refresh();
+    } catch (err) {
+      console.error('Delete failed:', err);
+    }
+  }, [activeSessionId, refresh]);
+
   // Optimistically add user message to the chat
   const addOptimisticMessage = useCallback((sessionId: string, text: string) => {
     const msg: ChatMessage = {
@@ -198,6 +211,7 @@ export default function App() {
                 error={error}
                 activeId={activeSessionId}
                 onSelect={handleSelectSession}
+                onDelete={handleDeleteSession}
                 onNew={handleNewSession}
                 onRefresh={refresh}
                 onEditingChange={setPaused}

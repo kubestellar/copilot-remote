@@ -33,11 +33,13 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/sessions', (_req, res) => {
   const sessions = sessionManager.getAllSessions();
   const meta = getAllMeta();
-  const enriched = sessions.map(s => ({
-    ...s,
-    name: meta[s.id]?.name,
-    tags: meta[s.id]?.tags || [],
-  }));
+  const enriched = sessions
+    .filter(s => !meta[s.id]?.hidden)
+    .map(s => ({
+      ...s,
+      name: meta[s.id]?.name,
+      tags: meta[s.id]?.tags || [],
+    }));
   res.json(enriched);
 });
 
@@ -102,7 +104,8 @@ app.delete('/api/sessions/:id/tags/:tag', (req, res) => {
 
 app.delete('/api/sessions/:id', (req, res) => {
   const killed = sessionManager.killSession(req.params.id);
-  res.json({ killed });
+  updateMeta(req.params.id, { hidden: true });
+  res.json({ killed, hidden: true });
 });
 
 app.post('/api/sessions/:id/send', async (req, res) => {
