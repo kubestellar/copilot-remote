@@ -2,8 +2,8 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { Box, IconButton, Text } from '@primer/react';
-import { PlusIcon, XIcon, ArrowLeftIcon, ColumnsIcon } from '@primer/octicons-react';
+import { Box, IconButton, Text, ActionMenu, ActionList } from '@primer/react';
+import { PlusIcon, XIcon, ArrowLeftIcon, ColumnsIcon, LinkIcon } from '@primer/octicons-react';
 import '@xterm/xterm/css/xterm.css';
 
 interface TermTab {
@@ -136,6 +136,47 @@ export function TerminalView({ onBack }: Props) {
       setActiveTabId(data.id);
     } catch (err) {
       console.error('Failed to create terminal:', err);
+    }
+  }, []);
+
+  const [tmuxSessions, setTmuxSessions] = useState<string[]>([]);
+
+  const fetchTmuxSessions = useCallback(async () => {
+    const { token, serverUrl } = getServerUrls();
+    try {
+      const res = await fetch(`${serverUrl}/api/tmux-sessions`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await res.json();
+      // Filter out sessions already attached in our tabs
+      const attached = new Set(tabsRef.current.map(t => t.tmuxSession));
+      setTmuxSessions((data as string[]).filter(s => !attached.has(s)));
+    } catch (err) {
+      console.error('Failed to fetch tmux sessions:', err);
+      setTmuxSessions([]);
+    }
+  }, []);
+
+  const attachTab = useCallback(async (tmuxSession: string) => {
+    const { token, serverUrl } = getServerUrls();
+    try {
+      const res = await fetch(`${serverUrl}/api/terminals/attach`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tmuxSession }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const newTab: TermTab = {
+        id: data.id,
+        tmuxSession: data.tmuxSession || tmuxSession,
+        name: tmuxSession,
+        checked: false,
+      };
+      setTabs(prev => [...prev, newTab]);
+      setActiveTabId(data.id);
+    } catch (err) {
+      console.error('Failed to attach tmux session:', err);
     }
   }, []);
 
@@ -313,6 +354,26 @@ export function TerminalView({ onBack }: Props) {
             onClick={() => setTileMode(!tileMode)}
           />
         )}
+        <ActionMenu>
+          <ActionMenu.Anchor>
+            <IconButton icon={LinkIcon} aria-label="Attach tmux session" variant="invisible" size="small" sx={{ flexShrink: 0 }} onClick={fetchTmuxSessions} />
+          </ActionMenu.Anchor>
+          <ActionMenu.Overlay>
+            <ActionList>
+              <ActionList.GroupHeading as="h3">Attach tmux session</ActionList.GroupHeading>
+              {tmuxSessions.length === 0 ? (
+                <ActionList.Item disabled>No sessions found</ActionList.Item>
+              ) : (
+                tmuxSessions.map(s => (
+                  <ActionList.Item key={s} onSelect={() => attachTab(s)}>
+                    <ActionList.LeadingVisual><Text sx={{ fontFamily: 'mono', fontSize: '11px' }}>⬡</Text></ActionList.LeadingVisual>
+                    {s}
+                  </ActionList.Item>
+                ))
+              )}
+            </ActionList>
+          </ActionMenu.Overlay>
+        </ActionMenu>
         <IconButton icon={PlusIcon} aria-label="New terminal" variant="invisible" size="small" sx={{ mx: 1, flexShrink: 0 }} onClick={addTab} />
       </Box>
 

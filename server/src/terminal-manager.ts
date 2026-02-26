@@ -77,6 +77,52 @@ class TerminalManager extends EventEmitter {
     return terminal;
   }
 
+  /** Attach to an existing tmux session by name */
+  attach(id: string, tmuxSession: string): Terminal {
+    if (this.terminals.has(id)) return this.terminals.get(id)!;
+    if (!TMUX_PATH) throw new Error('tmux is not installed');
+
+    const term = pty.spawn(TMUX_PATH, [
+      'attach-session', '-t', tmuxSession,
+    ], {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd: homedir(),
+      env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+    });
+
+    const terminal: Terminal = {
+      id,
+      pty: term,
+      cwd: homedir(),
+      createdAt: new Date().toISOString(),
+      tmuxSession,
+      lastCommand: '',
+      inputBuffer: '',
+    };
+
+    term.onData((data) => this.emit('data', id, data));
+    term.onExit(({ exitCode }) => {
+      this.emit('exit', id, exitCode);
+      this.terminals.delete(id);
+    });
+
+    this.terminals.set(id, terminal);
+    return terminal;
+  }
+
+  /** List tmux sessions available on the machine */
+  listTmuxSessions(): string[] {
+    if (!TMUX_PATH) return [];
+    try {
+      const out = execSync(`${TMUX_PATH} list-sessions -F "#{session_name}"`, { encoding: 'utf8' });
+      return out.trim().split('\n').filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
   write(id: string, data: string): boolean {
     const t = this.terminals.get(id);
     if (!t) return false;

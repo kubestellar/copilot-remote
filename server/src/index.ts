@@ -244,6 +244,23 @@ app.post('/api/terminals', (req, res) => {
   }
 });
 
+app.post('/api/terminals/attach', (req, res) => {
+  try {
+    const { tmuxSession } = req.body || {};
+    if (!tmuxSession) return res.status(400).json({ error: 'tmuxSession is required' });
+    const id = `term-${Date.now()}`;
+    const terminal = terminalManager.attach(id, tmuxSession);
+    res.status(201).json({ id: terminal.id, cwd: terminal.cwd, createdAt: terminal.createdAt, tmuxSession: terminal.tmuxSession });
+  } catch (err: any) {
+    console.error('[Terminal] Failed to attach:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/tmux-sessions', (_req, res) => {
+  res.json(terminalManager.listTmuxSessions());
+});
+
 app.delete('/api/terminals/:id', (req, res) => {
   const killed = terminalManager.destroy(req.params.id);
   res.json({ killed });
