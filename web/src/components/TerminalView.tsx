@@ -514,15 +514,24 @@ export function TerminalView({ onBack }: Props) {
             );
           })}
         </Box>
-        <IconButton
-          icon={AppsIcon}
+        <Box
+          as="button"
           aria-label={tileMode ? 'Single view' : 'Tile checked terminals'}
-          variant={tileMode ? 'primary' : 'invisible'}
-          size="small"
+          title={tileMode ? 'Single view' : 'Tile checked terminals'}
           disabled={!hasChecked}
-          sx={{ mx: 1, flexShrink: 0, opacity: hasChecked ? 1 : 0.3 }}
-          onClick={() => setTileMode(!tileMode)}
-        />
+          onClick={() => setTileMode(m => !m)}
+          sx={{
+            mx: 1, flexShrink: 0, opacity: hasChecked ? 1 : 0.3,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 28, height: 28, borderRadius: 2, cursor: 'pointer',
+            bg: tileMode ? 'accent.emphasis' : 'transparent',
+            color: tileMode ? 'fg.onEmphasis' : 'fg.muted',
+            border: 'none',
+            ':hover': { bg: tileMode ? 'accent.emphasis' : 'canvas.default', color: 'fg.default' },
+          }}
+        >
+          <AppsIcon size={16} />
+        </Box>
         <ActionMenu>
           <ActionMenu.Anchor>
             <IconButton icon={LinkIcon} aria-label="Attach tmux session" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
