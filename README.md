@@ -1,32 +1,42 @@
 # ⚡ Copilot Remote
 
-Control GitHub Copilot CLI from your phone. Start sessions, send prompts, and watch Copilot work — all from a mobile-friendly chat interface over your local network.
+Control AI coding agents from any device. Manage Copilot CLI and Claude Code sessions, launch tiled web terminals with tmux, and stream real-time output — all from a mobile-friendly interface over your local network.
 
 ## How It Works
 
 ```
-┌──────────────┐         local WiFi          ┌──────────────────────┐
-│  📱 Phone    │ ◄── WebSocket + REST ──►    │  💻 Laptop           │
-│  (PWA)       │      :5173 → :3001          │  (Node.js server)    │
-│              │                              │                      │
-│  Chat UI     │                              │  Spawns copilot CLI  │
-│  Session list│                              │  Reads ~/.copilot/   │
-│  Tags/rename │                              │  Live-tails events   │
-└──────────────┘                              └──────────────────────┘
++---------------------+       local WiFi       +-------------------------+
+|  Phone / Browser    |  <-- WebSocket+REST --> |  Laptop                 |
+|  (PWA)              |      :5173 -> :3001     |  (Node.js server)       |
+|                     |                         |                         |
+|  Chat UI            |                         |  Spawns AI CLIs         |
+|  Tiled terminals    |                         |  Manages tmux sessions  |
+|  Session list       |                         |  ACP streaming          |
+|  Tags / rename      |                         |  Reads ~/.copilot/      |
++---------------------+                         +-------------------------+
 ```
 
-The **server** runs on your laptop alongside your Copilot CLI installations. It spawns and manages Copilot processes, reads historical sessions from `~/.copilot/session-state/`, live-tails `events.jsonl` files for real-time updates, and streams everything over WebSocket.
+The **server** runs on your laptop alongside your AI CLI installations (Copilot CLI, Claude Code). It spawns and manages AI processes via ACP streaming, provides interactive web terminals backed by tmux and node-pty, reads historical sessions from `~/.copilot/session-state/`, and streams everything over WebSocket.
 
-The **web app** is a React PWA built with [GitHub Primer](https://primer.style/react/) that you open on your phone. It connects to the server over your local network, provides a responsive mobile-first chat interface, and lets you manage sessions with custom names, tags, and real-time status.
+The **web app** is a React PWA built with [GitHub Primer](https://primer.style/react/) and xterm.js. It connects to the server over your local network, provides a chat interface with full terminal emulation, tiled multi-terminal layouts, and lets you manage sessions with custom names, tags, and real-time status.
 
 ## Features
 
 ### Core
-- **📋 Session Browser** — Lists all Copilot CLI sessions: running (managed), active (detected via filesystem), and historical (from `~/.copilot/session-state/`)
-- **🚀 Start Sessions** — Launch new Copilot sessions with a prompt, working directory, or resume an existing session
+- **📋 Session Browser** — Lists all AI CLI sessions: running (managed), active (detected via filesystem), and historical (from `~/.copilot/session-state/`)
+- **🚀 Start Sessions** — Launch new Copilot or Claude sessions with a prompt, working directory, or resume an existing session
 - **💬 iMessage-style Chat** — Send messages and see responses as compact chat bubbles with markdown rendering, inline 🤖 icons, and short timestamps
-- **⚡ Real-time Streaming** — Live-tails `events.jsonl` files (polling every 1.5s with byte-offset reads) for instant message updates
+- **⚡ ACP Streaming** — Real-time streaming via the Agent Client Protocol with persistent `copilot --acp` processes for multi-turn conversations with live text chunks and tool call status
 - **🔄 Resume Sessions** — Pick up where you left off with `--resume <sessionId>`
+- **🗑️ Delete Sessions** — Remove sessions directly from the session list
+
+### Web Terminals
+- **🖥️ Interactive Terminals** — Full terminal emulation powered by xterm.js and node-pty, with cursor blinking, link detection, and responsive sizing
+- **📐 Tile Mode** — Multiple terminals in a tiled grid layout on desktop, each showing a live xterm.js window with independent focus and keyboard shortcuts
+- **🔗 Tmux Integration** — Terminals automatically run inside tmux sessions (`cr-<id>`) with mouse support, allowing sessions to persist and be reattached
+- **🤖 Auto-launch AI CLI** — Automatically detects installed AI tools (Copilot CLI, Claude Code) and launches them in new terminals
+- **📋 Tmux Copy** — Copy tmux session info from tile headers for easy external attach
+- **⌨️ Keyboard Shortcuts** — Navigate and manage tiles with keyboard shortcuts
 
 ### Organization
 - **🏷️ Session Names** — Rename sessions inline with a tap on the pencil icon
@@ -39,7 +49,7 @@ The **web app** is a React PWA built with [GitHub Primer](https://primer.style/r
 - **🌙 Dark Mode** — Proper dark theme using Primer's `dark_dimmed` scheme with explicit high-contrast colors
 
 ### Reliability
-- **🔁 Auto-reconnect** — WebSocket reconnects automatically with 3-second backoff
+- **🔁 Auto-reconnect** — WebSocket reconnects automatically with 3-second backoff; terminals auto-reconnect on server restart
 - **🔄 Auto-restart** — `start.sh` script keeps both servers alive with infinite restart loops
 - **🔒 Token Auth** — Server generates a random 256-bit token on first run; all API/WebSocket calls require it
 - **🤖 Auto-QA** — GitHub Actions workflow runs hourly quality checks (build, lint, security, a11y, performance) with rotating focus areas
@@ -52,13 +62,14 @@ The **web app** is a React PWA built with [GitHub Primer](https://primer.style/r
 ## Prerequisites
 
 - **Node.js 18+** and **npm 9+**
-- **GitHub Copilot CLI** installed and authenticated (`copilot` command available in PATH)
+- **tmux** installed (`brew install tmux` / `apt install tmux`)
+- **GitHub Copilot CLI** and/or **Claude Code** installed and authenticated
 - Laptop and phone on the **same WiFi network**
 
 ## Installation
 
 ```bash
-git clone https://github.com/clubanderson/copilot-remote.git
+git clone https://github.com/kubestellar/copilot-remote.git
 cd copilot-remote
 npm install
 ```
@@ -138,6 +149,8 @@ copilot-remote/
 │   │   ├── session-store.ts    # Reads ~/.copilot/session-state/ for history
 │   │   ├── session-watcher.ts  # Live-tails events.jsonl with byte-offset reads
 │   │   ├── session-meta.ts     # CRUD for session names/tags in ~/.copilot-remote/
+│   │   ├── terminal-manager.ts # Web terminal + tmux session management
+│   │   ├── acp-manager.ts      # Agent Control Protocol streaming for AI CLIs
 │   │   ├── auth.ts             # Token generation, middleware, WS validation
 │   │   └── types.ts            # Shared TypeScript interfaces
 │   ├── package.json
@@ -150,6 +163,7 @@ copilot-remote/
 │   │   │   ├── SessionList.tsx     # Compact session list with inline rename/tags
 │   │   │   ├── ChatView.tsx        # iMessage-style chat with back navigation
 │   │   │   ├── MessageBubble.tsx   # Memoized message with inline markdown
+│   │   │   ├── TerminalView.tsx    # xterm.js tiled terminal grid with tmux
 │   │   │   ├── NewSessionDialog.tsx# Create/resume session form
 │   │   │   └── ConnectionStatus.tsx# Green/red dot indicator
 │   │   ├── hooks/
@@ -222,9 +236,12 @@ Connect to `/ws?token=<token>` for real-time streaming.
 | Server runtime | Node.js + TypeScript |
 | HTTP framework | Express 5 |
 | WebSocket | ws |
+| Terminal PTY | node-pty |
+| Terminal mux | tmux |
 | Session parsing | yaml (for workspace.yaml), line-by-line events.jsonl |
 | Frontend framework | React 18 |
 | UI components | @primer/react (GitHub's design system) |
+| Terminal emulator | @xterm/xterm |
 | Icons | @primer/octicons-react |
 | Markdown | react-markdown |
 | Build tool | Vite 6 |
@@ -261,6 +278,14 @@ Issues are auto-created in GitHub with labels, reproduction steps, and fix guida
 - [x] Live-tailing of active sessions
 - [x] Auto-restart server script
 - [x] Auto-QA workflow
+- [x] Web terminals with xterm.js + node-pty
+- [x] Tmux integration for persistent terminals
+- [x] Tile mode for multi-terminal grid layout
+- [x] Auto-launch AI CLI (Copilot / Claude)
+- [x] ACP streaming for real-time AI responses
+- [x] Terminal auto-reconnect on server restart
+- [x] Delete sessions from session list
+- [x] Keyboard shortcuts for tile navigation
 - [ ] Multi-user collaborative sessions
 - [ ] Slack integration for team collaboration
 - [ ] Push notifications when sessions need input or complete
