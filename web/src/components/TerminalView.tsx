@@ -119,7 +119,7 @@ export function TerminalView({ onBack }: Props) {
   const [focusedTileId, setFocusedTileId] = useState<string | null>(null);
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const singleRef = useRef<HTMLDivElement>(null);
+  const singleContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const tileContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -534,37 +534,34 @@ export function TerminalView({ onBack }: Props) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Mount active terminal to single container (non-tile mode)
+  // Mount active terminal to its own container (non-tile mode)
   useEffect(() => {
-    if (!fontReady || tileMode || !activeTabId || !singleRef.current) return;
-    const container = singleRef.current;
+    if (!fontReady || tileMode || !activeTabId) return;
+    const container = singleContainerRefs.current.get(activeTabId);
+    if (!container) return;
     const inst = termInstances.get(activeTabId);
     if (inst && inst.term.element?.parentElement === container) {
-      // Already mounted here — just refit
+      // Already mounted — just refit
       setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
+      inst.term.focus();
       return;
     }
-    // Use setTimeout to ensure container has layout dimensions before mounting
-    setTimeout(() => {
-      if (!container.isConnected) return;
-      if (inst) {
-        // Restore full font size and move terminal element to single container
-        // Note: term.open() can only be called once; use appendChild to move
-        inst.term.options.fontSize = 14;
-        container.innerHTML = '';
-        if (inst.term.element) {
-          container.appendChild(inst.term.element);
-        } else {
-          inst.term.open(container);
-        }
-        inst.container = container;
-        setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
-        inst.term.focus();
-      } else if (tabs.find(t => t.id === activeTabId)) {
-        // New terminal — connect
-        createTermConnection(activeTabId, container);
+    if (inst) {
+      // Restore full font size and mount into this tab's own container
+      inst.term.options.fontSize = 14;
+      container.innerHTML = '';
+      if (inst.term.element) {
+        container.appendChild(inst.term.element);
+      } else {
+        inst.term.open(container);
       }
-    }, 50);
+      inst.container = container;
+      setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
+      inst.term.focus();
+    } else if (tabs.find(t => t.id === activeTabId)) {
+      // New terminal — connect
+      createTermConnection(activeTabId, container);
+    }
   }, [activeTabId, tileMode, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle window resize
@@ -954,15 +951,24 @@ export function TerminalView({ onBack }: Props) {
           ))}
         </div>
       ) : (
-        /* Single terminal */
-        <Box
-          ref={singleRef}
-          sx={{
-            flex: 1, minHeight: 0, p: 1, bg: '#0d1117',
-            '& .xterm': { height: '100%' },
-            '& .xterm-viewport': { overflow: 'hidden !important' },
-          }}
-        />
+        /* Single terminal — one container per tab, show/hide to avoid DOM reparenting flicker */
+        <Box sx={{ flex: 1, minHeight: 0, position: 'relative', bg: '#0d1117' }}>
+          {tabs.map(tab => (
+            <Box
+              key={tab.id}
+              ref={(el: HTMLDivElement | null) => {
+                if (el) singleContainerRefs.current.set(tab.id, el);
+                else singleContainerRefs.current.delete(tab.id);
+              }}
+              sx={{
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, p: 1,
+                display: tab.id === activeTabId ? 'block' : 'none',
+                '& .xterm': { height: '100%' },
+                '& .xterm-viewport': { overflow: 'hidden !important' },
+              }}
+            />
+          ))}
+        </Box>
       )}
     </Box>
   );
