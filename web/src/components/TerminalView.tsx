@@ -318,8 +318,19 @@ export function TerminalView({ onBack }: Props) {
         // Filter to terminals that have an AI CLI running
         const withCli = existing.filter(t => t.lastCommand && t.lastCommand !== '');
         if (withCli.length > 0) {
-          // Restore tabs for terminals with active AI CLIs
-          const restored: TermTab[] = withCli.map((t, i) => ({
+          // Deduplicate by tmux session — keep latest per session, delete extras
+          const bySession = new Map<string, typeof withCli[0]>();
+          const dupes: typeof withCli = [];
+          for (const t of withCli) {
+            const key = t.tmuxSession || t.id;
+            if (bySession.has(key)) {
+              dupes.push(bySession.get(key)!);
+            }
+            bySession.set(key, t);
+          }
+          const unique = Array.from(bySession.values());
+          // Restore tabs for unique terminals
+          const restored: TermTab[] = unique.map((t, i) => ({
             id: t.id,
             tmuxSession: t.tmuxSession || '',
             name: t.lastCommand || t.tmuxSession || `Shell ${i + 1}`,
@@ -327,8 +338,9 @@ export function TerminalView({ onBack }: Props) {
           }));
           setTabs(restored);
           setActiveTabId(restored[0].id);
-          // Clean up stale terminals without CLIs
-          for (const t of existing.filter(e => !e.lastCommand)) {
+          // Clean up stale terminals without CLIs + duplicates
+          const toDelete = [...existing.filter(e => !e.lastCommand), ...dupes];
+          for (const t of toDelete) {
             fetch(`${serverUrl}/api/terminals/${t.id}`, {
               method: 'DELETE',
               headers: { 'Authorization': `Bearer ${token}` },
@@ -416,27 +428,17 @@ export function TerminalView({ onBack }: Props) {
   }, [activeTabId, tileMode]);
 
   const checkedTabs = tabs.filter(t => t.checked);
-  // Deduplicate tiles by tmux session to prevent synchronized scroll
-  const tileCheckedTabs = (() => {
-    const seen = new Set<string>();
-    return checkedTabs.filter(t => {
-      const key = t.tmuxSession || t.id;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  })();
   const hasChecked = checkedTabs.length > 0;
   const activeTab = tabs.find(t => t.id === activeTabId);
 
   // Dynamic grid: 1→1, 2→2, 3-4→2, 5-6→3, 7-9→3, 10+→4
-  const tileCols = tileCheckedTabs.length <= 2 ? tileCheckedTabs.length
-    : tileCheckedTabs.length <= 4 ? 2
-    : tileCheckedTabs.length <= 9 ? 3
+  const tileCols = checkedTabs.length <= 2 ? checkedTabs.length
+    : checkedTabs.length <= 4 ? 2
+    : checkedTabs.length <= 9 ? 3
     : 4;
 
   // Scale font size down in tile mode based on grid density
-  const tileRows = Math.ceil(tileCheckedTabs.length / Math.max(tileCols, 1));
+  const tileRows = Math.ceil(checkedTabs.length / Math.max(tileCols, 1));
   const tileFontSize = tileRows <= 1 ? 13 : tileRows <= 2 ? 10 : tileRows <= 3 ? 8 : 7;
 
   // Collect tile container refs (no mounting here — just store the DOM element)
@@ -517,7 +519,7 @@ export function TerminalView({ onBack }: Props) {
         el.removeEventListener('focusin', handler);
       }
     };
-  }, [tileMode, fontReady, tileCheckedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -684,10 +686,10 @@ export function TerminalView({ onBack }: Props) {
         <div style={{
           flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'grid',
           gridTemplateColumns: `repeat(${tileCols}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${Math.ceil(tileCheckedTabs.length / tileCols)}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${Math.ceil(checkedTabs.length / tileCols)}, minmax(0, 1fr))`,
           gap: '2px', background: '#30363d', width: '100%',
         }}>
-          {tileCheckedTabs.map(tab => (
+          {checkedTabs.map(tab => (
             <div key={tab.id} style={{
               display: 'flex', flexDirection: 'column', background: '#0d1117', minHeight: 0, minWidth: 0, overflow: 'hidden',
               border: focusedTileId === tab.id ? '2px solid #58a6ff' : '2px solid transparent',
