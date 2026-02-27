@@ -332,6 +332,7 @@ termWss.on('connection', (ws, req) => {
   };
   const onExit = (id: string, exitCode: number) => {
     if (id === termId && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'exit', id: termId, exitCode }));
       ws.send(`\r\n[Process exited with code ${exitCode}]\r\n`);
       ws.close(1000);
     }

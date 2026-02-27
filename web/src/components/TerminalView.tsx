@@ -129,6 +129,11 @@ export function TerminalView({ onBack }: Props) {
           setTabs(prev => prev.map(t => t.id === parsed.id ? { ...t, name: parsed.command } : t));
           return;
         }
+        if (parsed.type === 'exit') {
+          // Process exited — mark so onclose doesn't try to reconnect
+          (inst as any).processExited = true;
+          return;
+        }
       } catch { /* raw terminal data */ }
       term.write(e.data);
     };
@@ -136,6 +141,13 @@ export function TerminalView({ onBack }: Props) {
     ws.onclose = () => {
       inst.connected = false;
       setTabs(prev => [...prev]);
+
+      // If the process exited (not just a connection drop), auto-remove the tab after a short delay
+      if ((inst as any).processExited) {
+        term.write('\r\n\x1b[33m[Session ended — closing tab]\x1b[0m\r\n');
+        setTimeout(() => closeTabRef.current(tabId), 2000);
+        return;
+      }
 
       // Auto-reconnect if this tab has a tmux session
       const tab = tabsRef.current.find(t => t.id === tabId);
@@ -345,6 +357,9 @@ export function TerminalView({ onBack }: Props) {
       return next;
     });
   }, [activeTabId]);
+
+  const closeTabRef = useRef(closeTab);
+  closeTabRef.current = closeTab;
 
   const toggleCheck = useCallback((id: string) => {
     setTabs(prev => prev.map(t => t.id === id ? { ...t, checked: !t.checked } : t));
