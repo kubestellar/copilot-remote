@@ -284,6 +284,11 @@ app.delete('/api/terminals/:id', (req, res) => {
   res.json({ killed });
 });
 
+app.delete('/api/tmux-sessions/:name', (req, res) => {
+  const killed = terminalManager.killTmuxSession(req.params.name);
+  res.json({ killed });
+});
+
 // Terminal WebSocket — separate path for raw PTY I/O
 const termWss = new WebSocketServer({ noServer: true });
 

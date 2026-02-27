@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Box, IconButton, Text, ActionMenu, ActionList } from '@primer/react';
-import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon } from '@primer/octicons-react';
+import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon } from '@primer/octicons-react';
 import '@xterm/xterm/css/xterm.css';
 
 /* Constrain xterm inside tile cells */
@@ -23,6 +23,7 @@ interface TermTab {
   tmuxSession: string;
   name: string;
   checked: boolean;
+  userRenamed?: boolean;
 }
 
 const termInstances = new Map<string, {
@@ -72,6 +73,8 @@ export function TerminalView({ onBack }: Props) {
   const [tileMode, setTileMode] = useState(false);
   const [fontReady, setFontReady] = useState(false);
   const [focusedTileId, setFocusedTileId] = useState<string | null>(null);
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const singleRef = useRef<HTMLDivElement>(null);
   const tileContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const tabsRef = useRef(tabs);
@@ -126,7 +129,7 @@ export function TerminalView({ onBack }: Props) {
       try {
         const parsed = JSON.parse(e.data);
         if (parsed.type === 'command') {
-          setTabs(prev => prev.map(t => t.id === parsed.id ? { ...t, name: parsed.command } : t));
+          setTabs(prev => prev.map(t => t.id === parsed.id && !t.userRenamed ? { ...t, name: parsed.command } : t));
           return;
         }
         if (parsed.type === 'exit') {
@@ -255,6 +258,22 @@ export function TerminalView({ onBack }: Props) {
   }, []);
 
   const [tmuxSessions, setTmuxSessions] = useState<string[]>([]);
+
+  const killTmuxSession = useCallback(async (sessionName: string) => {
+    const { token, serverUrl } = getServerUrls();
+    try {
+      await fetch(`${serverUrl}/api/tmux-sessions/${encodeURIComponent(sessionName)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      // Also close any local tab referencing this session
+      const tab = tabsRef.current.find(t => t.tmuxSession === sessionName);
+      if (tab) closeTabRef.current(tab.id);
+      setTmuxSessions(prev => prev.filter(s => s !== sessionName));
+    } catch (err) {
+      console.error('Failed to kill tmux session:', err);
+    }
+  }, []);
 
   const fetchTmuxSessions = useCallback(async () => {
     const { token, serverUrl } = getServerUrls();
@@ -642,12 +661,42 @@ export function TerminalView({ onBack }: Props) {
                 />
                 <Box
                   onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleCheck(tab.id); if (!tileMode) setActiveTabId(tab.id); }}
+                  onDoubleClick={(e: React.MouseEvent) => { e.stopPropagation(); setRenamingTabId(tab.id); setRenameValue(tab.name); }}
                   sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, overflow: 'hidden' }}
                 >
                   <Box sx={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, bg: isConnected ? 'success.fg' : hasConnected ? 'danger.fg' : 'fg.muted' }} />
-                  <Text sx={{ fontSize: '11px', color: 'fg.default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'mono' }}>
-                    {tab.name}
-                  </Text>
+                  {renamingTabId === tab.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          const trimmed = renameValue.trim();
+                          if (trimmed) setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, name: trimmed, userRenamed: true } : t));
+                          setRenamingTabId(null);
+                        } else if (e.key === 'Escape') {
+                          setRenamingTabId(null);
+                        }
+                        e.stopPropagation();
+                      }}
+                      onBlur={() => {
+                        const trimmed = renameValue.trim();
+                        if (trimmed) setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, name: trimmed, userRenamed: true } : t));
+                        setRenamingTabId(null);
+                      }}
+                      onClick={e => e.stopPropagation()}
+                      style={{
+                        fontSize: '11px', fontFamily: 'monospace', background: 'var(--bgColor-default, #0d1117)',
+                        color: 'var(--fgColor-default, #e6edf3)', border: '1px solid var(--borderColor-accent-emphasis, #58a6ff)',
+                        borderRadius: 3, padding: '1px 4px', outline: 'none', width: '100%', minWidth: 40,
+                      }}
+                    />
+                  ) : (
+                    <Text sx={{ fontSize: '11px', color: 'fg.default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'mono' }}>
+                      {tab.name}
+                    </Text>
+                  )}
                 </Box>
                 <Box
                   as="button"
@@ -694,7 +743,17 @@ export function TerminalView({ onBack }: Props) {
                   tmuxSessions.map(s => (
                     <ActionList.Item key={s} onSelect={() => attachTab(s)}>
                       <ActionList.LeadingVisual><Text sx={{ fontFamily: 'mono', fontSize: '11px' }}>⬡</Text></ActionList.LeadingVisual>
-                      {s}
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <Text>{s}</Text>
+                        <Box
+                          as="button"
+                          onClick={(e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); killTmuxSession(s); }}
+                          sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, ml: 2, display: 'flex', ':hover': { color: 'danger.fg' } }}
+                          title={`Kill tmux session: ${s}`}
+                        >
+                          <TrashIcon size={12} />
+                        </Box>
+                      </Box>
                     </ActionList.Item>
                   ))
                 )}

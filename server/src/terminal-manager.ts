@@ -221,6 +221,23 @@ class TerminalManager extends EventEmitter {
     return AI_CLIS;
   }
 
+  /** Kill a tmux session by name (and destroy any managed terminal using it) */
+  killTmuxSession(sessionName: string): boolean {
+    if (!TMUX_PATH) return false;
+    // Destroy any managed terminal that references this session
+    for (const [id, t] of this.terminals) {
+      if (t.tmuxSession === sessionName) {
+        this.destroy(id);
+      }
+    }
+    try {
+      execSync(`${TMUX_PATH} kill-session -t "${sessionName}"`, { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   list() {
     return Array.from(this.terminals.values()).map(t => ({
       id: t.id,
