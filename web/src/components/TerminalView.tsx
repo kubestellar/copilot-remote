@@ -562,19 +562,21 @@ export function TerminalView({ onBack }: Props) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Eagerly create terminal connections for ALL tabs so content is ready before switching
+  // Skip only when tile mode is active AND has checked tabs (tiles are rendering)
+  const tileActive = tileMode && tabs.some(t => t.checked);
   useEffect(() => {
-    if (!fontReady || tileMode) return;
+    if (!fontReady || tileActive) return;
     for (const tab of tabs) {
       const container = singleContainerRefs.current.get(tab.id);
       if (!container) continue;
       if (termInstances.has(tab.id)) continue;
       createTermConnection(tab.id, container);
     }
-  }, [tabs, fontReady, tileMode, createTermConnection]);
+  }, [tabs, fontReady, tileActive, createTermConnection]);
 
   // Handle active tab: focus terminal, or remount from tile mode
   useEffect(() => {
-    if (!fontReady || tileMode || !activeTabId) return;
+    if (!fontReady || tileActive || !activeTabId) return;
     const container = singleContainerRefs.current.get(activeTabId);
     if (!container) return;
     const inst = termInstances.get(activeTabId);
@@ -597,7 +599,7 @@ export function TerminalView({ onBack }: Props) {
       setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
       inst.term.focus();
     }
-  }, [activeTabId, tileMode, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTabId, tileActive, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle window resize — fit all terminals since visibility:hidden preserves layout
   useEffect(() => {
@@ -753,7 +755,7 @@ export function TerminalView({ onBack }: Props) {
                   ':hover': { bg: 'canvas.default' },
                   maxWidth: 500, minWidth: 150, flexShrink: 0,
                 }}
-                onClick={() => { if (!tileMode) setActiveTabId(tab.id); }}
+                onClick={() => { if (tileMode) { setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } else { setActiveTabId(tab.id); } }}
               >
                 <input
                   type="checkbox"
@@ -763,7 +765,7 @@ export function TerminalView({ onBack }: Props) {
                   style={{ margin: 0, cursor: 'pointer' }}
                 />
                 <Box
-                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); if (!tileMode) setActiveTabId(tab.id); }}
+                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); if (tileMode) { setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } else { setActiveTabId(tab.id); } }}
                   onDoubleClick={(e: React.MouseEvent) => { e.stopPropagation(); setRenamingTabId(tab.id); setRenameValue(tab.name); }}
                   sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, overflow: 'hidden' }}
                 >
