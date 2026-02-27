@@ -267,9 +267,9 @@ app.post('/api/terminals/attach', (req, res) => {
 });
 
 app.get('/api/tmux-sessions', (_req, res) => {
-  // Filter out sessions already managed by a terminal
+  // Filter out cr-* sessions (copilot-remote's own) and already-managed ones
   const managed = new Set(terminalManager.list().map(t => t.tmuxSession));
-  const available = terminalManager.listTmuxSessions().filter(s => !managed.has(s));
+  const available = terminalManager.listTmuxSessions().filter(s => !managed.has(s) && !s.startsWith('cr-'));
   res.json(available);
 });
 
