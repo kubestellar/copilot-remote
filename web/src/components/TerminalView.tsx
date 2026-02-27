@@ -571,16 +571,25 @@ export function TerminalView({ onBack }: Props) {
     }
   }, [activeTabId, tileMode, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle window resize — fit all terminals since visibility:hidden preserves layout
+  // ResizeObserver: auto-fit terminals when their containers resize (initial load, window resize, tile/untile)
   useEffect(() => {
-    const handleResize = () => {
-      for (const [, inst] of termInstances) {
-        try { inst.fitAddon.fit(); } catch {}
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const el = entry.target as HTMLElement;
+        for (const [, inst] of termInstances) {
+          if (inst.container === el) {
+            try { inst.fitAddon.fit(); } catch {}
+            break;
+          }
+        }
       }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [tileMode]);
+    });
+    // Observe all current containers
+    for (const [, container] of singleContainerRefs.current) {
+      observer.observe(container);
+    }
+    return () => observer.disconnect();
+  }, [tabs.length, tileMode]);
 
   const checkedTabs = tabs.filter(t => t.checked);
   const hasChecked = checkedTabs.length > 0;
