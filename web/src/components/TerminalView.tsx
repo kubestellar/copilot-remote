@@ -331,9 +331,8 @@ export function TerminalView({ onBack }: Props) {
             .then(r => r.json())
             .then((clis: { name: string }[]) => {
               if (clis.length > 1) {
-                // Multiple CLIs — don't auto-launch, let user choose from + menu
-                // Create a plain shell tab so there's something visible
-                addTab();
+                // Multiple CLIs — auto-launch the first one (usually copilot)
+                addTab(clis[0].name);
               } else if (clis.length === 1) {
                 addTab(clis[0].name);
               } else {
