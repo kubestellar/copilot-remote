@@ -179,6 +179,13 @@ export function TerminalView({ onBack }: Props) {
         if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
         termInstances.delete(tabId);
       }
+      // Delete old terminal from server if ID changed
+      if (newId !== tabId) {
+        fetch(`${serverUrl}/api/terminals/${tabId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }).catch(() => {});
+      }
 
       // Update tab ID in state
       setTabs(prev => prev.map(t => t.id === tabId ? { ...t, id: newId, tmuxSession: data.tmuxSession || tmuxSession } : t));

@@ -252,6 +252,11 @@ app.post('/api/terminals/attach', (req, res) => {
   try {
     const { tmuxSession } = req.body || {};
     if (!tmuxSession) return res.status(400).json({ error: 'tmuxSession is required' });
+    // Return existing terminal for this tmux session if one exists
+    const existing = terminalManager.list().find(t => t.tmuxSession === tmuxSession);
+    if (existing) {
+      return res.status(200).json({ id: existing.id, cwd: existing.cwd, createdAt: existing.createdAt, tmuxSession: existing.tmuxSession });
+    }
     const id = `term-${Date.now()}`;
     const terminal = terminalManager.attach(id, tmuxSession);
     res.status(201).json({ id: terminal.id, cwd: terminal.cwd, createdAt: terminal.createdAt, tmuxSession: terminal.tmuxSession });
