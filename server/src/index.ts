@@ -363,6 +363,29 @@ termWss.on('connection', (ws, req) => {
   });
 });
 
+// Auto-discover new non-cr-* tmux sessions and broadcast to terminal WS clients
+let knownTmuxSessions = new Set<string>();
+setInterval(() => {
+  const managed = new Set(terminalManager.list().map(t => t.tmuxSession));
+  const allSessions = terminalManager.listTmuxSessions().filter(s => !s.startsWith('cr-'));
+  const newSessions: string[] = [];
+  for (const s of allSessions) {
+    if (!knownTmuxSessions.has(s) && !managed.has(s)) {
+      newSessions.push(s);
+    }
+  }
+  // Update known set to current reality (remove gone sessions too)
+  knownTmuxSessions = new Set([...allSessions, ...Array.from(managed)]);
+  if (newSessions.length > 0) {
+    const msg = JSON.stringify({ type: 'tmux-discovered', sessions: newSessions });
+    for (const client of termWss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    }
+  }
+}, 3000);
+
 // Start
 server.listen(PORT, '0.0.0.0', () => {
   const token = getOrCreateToken();

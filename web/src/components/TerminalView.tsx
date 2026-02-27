@@ -285,6 +285,43 @@ export function TerminalView({ onBack }: Props) {
     }
   }, []);
 
+  // Auto-discover new non-cr-* tmux sessions and attach them as tabs
+  const knownTmuxRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const { token, serverUrl } = getServerUrls();
+      try {
+        const res = await fetch(`${serverUrl}/api/tmux-sessions`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const sessions: string[] = await res.json();
+        for (const s of sessions) {
+          if (!knownTmuxRef.current.has(s)) {
+            knownTmuxRef.current.add(s);
+            // Auto-attach this newly discovered session
+            const attachRes = await fetch(`${serverUrl}/api/terminals/attach`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tmuxSession: s }),
+            });
+            const data = await attachRes.json();
+            if (!data.error) {
+              setTabs(prev => {
+                if (prev.some(t => t.tmuxSession === s)) return prev;
+                return [...prev, { id: data.id, tmuxSession: data.tmuxSession || s, name: s, checked: false }];
+              });
+            }
+          }
+        }
+        // Remove sessions that no longer exist
+        for (const s of knownTmuxRef.current) {
+          if (!sessions.includes(s)) knownTmuxRef.current.delete(s);
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   const closeTab = useCallback((id: string) => {
     const { token, serverUrl } = getServerUrls();
     const inst = termInstances.get(id);
