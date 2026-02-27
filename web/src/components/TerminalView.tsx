@@ -509,6 +509,26 @@ export function TerminalView({ onBack }: Props) {
     };
   }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === 't') {
+        e.preventDefault();
+        if (hasChecked) setTileMode(m => !m);
+      } else if (mod && e.shiftKey && e.key === 'L') {
+        e.preventDefault();
+        fetchTmuxSessions();
+      } else if (mod && e.shiftKey && e.key === 'N') {
+        e.preventDefault();
+        if (aiClis.length > 0) addTab(aiClis[0].name);
+        else addTab();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [hasChecked, aiClis, addTab, fetchTmuxSessions]);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Tab bar */}
@@ -567,62 +587,65 @@ export function TerminalView({ onBack }: Props) {
             );
           })}
         </Box>
-        <button
-          type="button"
-          aria-label={tileMode ? 'Single view' : 'Tile checked terminals'}
-          title={tileMode ? 'Single view' : 'Tile checked terminals'}
-          disabled={!hasChecked}
-          onClick={() => setTileMode(m => !m)}
-          style={{
-            margin: '0 4px', flexShrink: 0, opacity: hasChecked ? 1 : 0.3,
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, borderRadius: 6, cursor: hasChecked ? 'pointer' : 'default',
-            backgroundColor: tileMode ? 'var(--bgColor-accent-emphasis, #316dca)' : 'transparent',
-            color: tileMode ? 'var(--fgColor-onEmphasis, #fff)' : 'var(--fgColor-muted, #768390)',
-            border: 'none', padding: 0,
-          }}
-        >
-          <AppsIcon size={16} />
-        </button>
-        <ActionMenu>
-          <ActionMenu.Anchor>
-            <IconButton icon={LinkIcon} aria-label="Attach tmux session" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
-          </ActionMenu.Anchor>
-          <ActionMenu.Overlay sx={{ bg: 'canvas.overlay', borderColor: 'border.default', boxShadow: 'shadow.large' }}>
-            <ActionList sx={{ bg: 'canvas.overlay' }}>
-              <ActionList.GroupHeading>Attach tmux session</ActionList.GroupHeading>
-              {tmuxSessions.length === 0 ? (
-                <ActionList.Item disabled>No sessions found</ActionList.Item>
-              ) : (
-                tmuxSessions.map(s => (
-                  <ActionList.Item key={s} onSelect={() => attachTab(s)}>
-                    <ActionList.LeadingVisual><Text sx={{ fontFamily: 'mono', fontSize: '11px' }}>⬡</Text></ActionList.LeadingVisual>
-                    {s}
+        {/* Action buttons — centered between tabs and edge */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mx: 2, flexShrink: 0 }}>
+          <button
+            type="button"
+            aria-label={tileMode ? 'Single view (⌘T)' : 'Tile checked terminals (⌘T)'}
+            title={tileMode ? 'Single view (⌘T)' : 'Tile checked terminals (⌘T)'}
+            disabled={!hasChecked}
+            onClick={() => setTileMode(m => !m)}
+            style={{
+              flexShrink: 0, opacity: hasChecked ? 1 : 0.3,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 28, height: 28, borderRadius: 6, cursor: hasChecked ? 'pointer' : 'default',
+              backgroundColor: tileMode ? 'var(--bgColor-accent-emphasis, #316dca)' : 'transparent',
+              color: tileMode ? 'var(--fgColor-onEmphasis, #fff)' : 'var(--fgColor-muted, #768390)',
+              border: 'none', padding: 0,
+            }}
+          >
+            <AppsIcon size={16} />
+          </button>
+          <ActionMenu>
+            <ActionMenu.Anchor>
+              <IconButton icon={LinkIcon} aria-label="Attach tmux session (⌘⇧L)" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
+            </ActionMenu.Anchor>
+            <ActionMenu.Overlay sx={{ bg: 'canvas.overlay', borderColor: 'border.default', boxShadow: 'shadow.large' }}>
+              <ActionList sx={{ bg: 'canvas.overlay' }}>
+                <ActionList.GroupHeading>Attach tmux session</ActionList.GroupHeading>
+                {tmuxSessions.length === 0 ? (
+                  <ActionList.Item disabled>No sessions found</ActionList.Item>
+                ) : (
+                  tmuxSessions.map(s => (
+                    <ActionList.Item key={s} onSelect={() => attachTab(s)}>
+                      <ActionList.LeadingVisual><Text sx={{ fontFamily: 'mono', fontSize: '11px' }}>⬡</Text></ActionList.LeadingVisual>
+                      {s}
+                    </ActionList.Item>
+                  ))
+                )}
+              </ActionList>
+            </ActionMenu.Overlay>
+          </ActionMenu>
+          <ActionMenu>
+            <ActionMenu.Anchor>
+              <IconButton icon={PlusIcon} aria-label="New terminal (⌘⇧N)" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'success.fg' }} />
+            </ActionMenu.Anchor>
+            <ActionMenu.Overlay sx={{ bg: 'canvas.overlay', borderColor: 'border.default', boxShadow: 'shadow.large' }}>
+              <ActionList sx={{ bg: 'canvas.overlay' }}>
+                <ActionList.GroupHeading>New terminal</ActionList.GroupHeading>
+                {aiClis.map(cli => (
+                  <ActionList.Item key={cli.name} onSelect={() => addTab(cli.name)}>
+                    {cli.name === 'copilot' ? '🤖' : '🧠'} {cli.name}
                   </ActionList.Item>
-                ))
-              )}
-            </ActionList>
-          </ActionMenu.Overlay>
-        </ActionMenu>
-        <ActionMenu>
-          <ActionMenu.Anchor>
-            <IconButton icon={PlusIcon} aria-label="New terminal" variant="invisible" size="small" sx={{ mx: 1, flexShrink: 0, color: 'success.fg' }} />
-          </ActionMenu.Anchor>
-          <ActionMenu.Overlay sx={{ bg: 'canvas.overlay', borderColor: 'border.default', boxShadow: 'shadow.large' }}>
-            <ActionList sx={{ bg: 'canvas.overlay' }}>
-              <ActionList.GroupHeading>New terminal</ActionList.GroupHeading>
-              {aiClis.map(cli => (
-                <ActionList.Item key={cli.name} onSelect={() => addTab(cli.name)}>
-                  {cli.name === 'copilot' ? '🤖' : '🧠'} {cli.name}
+                ))}
+                <ActionList.Divider />
+                <ActionList.Item onSelect={() => addTab()}>
+                  💻 Shell
                 </ActionList.Item>
-              ))}
-              <ActionList.Divider />
-              <ActionList.Item onSelect={() => addTab()}>
-                💻 Shell
-              </ActionList.Item>
-            </ActionList>
-          </ActionMenu.Overlay>
-        </ActionMenu>
+              </ActionList>
+            </ActionMenu.Overlay>
+          </ActionMenu>
+        </Box>
       </Box>
 
       {/* Tmux info bar */}
@@ -670,9 +693,23 @@ export function TerminalView({ onBack }: Props) {
                   {tab.name}
                 </span>
                 {tab.tmuxSession && (
-                  <span style={{ fontSize: 9, color: '#6e7681', fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0 }}>
-                    {tab.tmuxSession}
-                  </span>
+                  <>
+                    <span style={{ fontSize: 9, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681', fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0 }}>
+                      tmux attach -t {tab.tmuxSession}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`tmux attach -t ${tab.tmuxSession}`); }}
+                      style={{
+                        background: 'transparent', border: '1px solid',
+                        borderColor: focusedTileId === tab.id ? 'rgba(255,255,255,0.3)' : '#30363d',
+                        borderRadius: 3, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681',
+                        cursor: 'pointer', padding: '0 4px', fontSize: 9, lineHeight: '16px', flexShrink: 0,
+                      }}
+                    >
+                      copy
+                    </button>
+                  </>
                 )}
               </div>
               <div style={{ flex: 1, position: 'relative', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
