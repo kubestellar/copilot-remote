@@ -661,7 +661,7 @@ export function TerminalView({ onBack }: Props) {
                   borderBottom: !tileMode && tab.id === activeTabId ? '2px solid' : (tileMode && tab.id === focusedTileId ? '2px solid' : '2px solid transparent'),
                   borderBottomColor: !tileMode && tab.id === activeTabId ? 'accent.fg' : (tileMode && tab.id === focusedTileId ? 'accent.fg' : 'transparent'),
                   ':hover': { bg: 'canvas.default' },
-                  maxWidth: 300, flexShrink: 0,
+                  maxWidth: 500, flexShrink: 0,
                 }}
               >
                 <input
