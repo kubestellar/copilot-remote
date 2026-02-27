@@ -716,7 +716,6 @@ export function TerminalView({ onBack }: Props) {
             return (
               <Box
                 key={tab.id}
-                onClick={() => toggleCheck(tab.id)}
                 sx={{
                   display: 'flex', alignItems: 'center', gap: 1,
                   px: 2, py: '5px',
@@ -727,6 +726,7 @@ export function TerminalView({ onBack }: Props) {
                   ':hover': { bg: 'canvas.default' },
                   maxWidth: 500, minWidth: 150, flexShrink: 0,
                 }}
+                onClick={() => { if (!tileMode) setActiveTabId(tab.id); }}
               >
                 <input
                   type="checkbox"
@@ -736,11 +736,14 @@ export function TerminalView({ onBack }: Props) {
                   style={{ margin: 0, cursor: 'pointer' }}
                 />
                 <Box
-                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleCheck(tab.id); if (!tileMode) setActiveTabId(tab.id); }}
+                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
                   onDoubleClick={(e: React.MouseEvent) => { e.stopPropagation(); setRenamingTabId(tab.id); setRenameValue(tab.name); }}
                   sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, overflow: 'hidden' }}
                 >
-                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, bg: isConnected ? 'success.fg' : hasConnected ? 'danger.fg' : 'fg.muted' }} />
+                  <Box
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleCheck(tab.id); }}
+                    sx={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, cursor: 'pointer', bg: isConnected ? 'success.fg' : hasConnected ? 'danger.fg' : 'fg.muted' }}
+                  />
                   {renamingTabId === tab.id ? (
                     <input
                       autoFocus
