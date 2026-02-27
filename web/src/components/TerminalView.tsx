@@ -416,17 +416,27 @@ export function TerminalView({ onBack }: Props) {
   }, [activeTabId, tileMode]);
 
   const checkedTabs = tabs.filter(t => t.checked);
+  // Deduplicate tiles by tmux session to prevent synchronized scroll
+  const tileCheckedTabs = (() => {
+    const seen = new Set<string>();
+    return checkedTabs.filter(t => {
+      const key = t.tmuxSession || t.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
   const hasChecked = checkedTabs.length > 0;
   const activeTab = tabs.find(t => t.id === activeTabId);
 
   // Dynamic grid: 1→1, 2→2, 3-4→2, 5-6→3, 7-9→3, 10+→4
-  const tileCols = checkedTabs.length <= 2 ? checkedTabs.length
-    : checkedTabs.length <= 4 ? 2
-    : checkedTabs.length <= 9 ? 3
+  const tileCols = tileCheckedTabs.length <= 2 ? tileCheckedTabs.length
+    : tileCheckedTabs.length <= 4 ? 2
+    : tileCheckedTabs.length <= 9 ? 3
     : 4;
 
   // Scale font size down in tile mode based on grid density
-  const tileRows = Math.ceil(checkedTabs.length / Math.max(tileCols, 1));
+  const tileRows = Math.ceil(tileCheckedTabs.length / Math.max(tileCols, 1));
   const tileFontSize = tileRows <= 1 ? 13 : tileRows <= 2 ? 10 : tileRows <= 3 ? 8 : 7;
 
   // Collect tile container refs (no mounting here — just store the DOM element)
@@ -507,7 +517,7 @@ export function TerminalView({ onBack }: Props) {
         el.removeEventListener('focusin', handler);
       }
     };
-  }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tileMode, fontReady, tileCheckedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -540,7 +550,7 @@ export function TerminalView({ onBack }: Props) {
         {onBack && (
           <IconButton icon={ArrowLeftIcon} aria-label="Back" variant="invisible" size="small" sx={{ mx: 1 }} onClick={onBack} />
         )}
-        <Box sx={{ display: 'flex', flex: 1, overflow: 'auto', minWidth: 0 }}>
+        <Box sx={{ display: 'flex', overflow: 'auto', minWidth: 0 }}>
           {tabs.map(tab => {
             const inst = termInstances.get(tab.id);
             const isConnected = inst?.connected ?? false;
@@ -587,8 +597,10 @@ export function TerminalView({ onBack }: Props) {
             );
           })}
         </Box>
-        {/* Action buttons — centered between tabs and edge */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mx: 2, flexShrink: 0 }}>
+        {/* Spacer to push action buttons to center */}
+        <Box sx={{ flex: 1 }} />
+        {/* Action buttons — centered */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
           <button
             type="button"
             aria-label={tileMode ? 'Single view (⌘T)' : 'Tile checked terminals (⌘T)'}
@@ -646,6 +658,8 @@ export function TerminalView({ onBack }: Props) {
             </ActionMenu.Overlay>
           </ActionMenu>
         </Box>
+        {/* Spacer to balance centering */}
+        <Box sx={{ flex: 1 }} />
       </Box>
 
       {/* Tmux info bar */}
@@ -670,10 +684,10 @@ export function TerminalView({ onBack }: Props) {
         <div style={{
           flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'grid',
           gridTemplateColumns: `repeat(${tileCols}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${Math.ceil(checkedTabs.length / tileCols)}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${Math.ceil(tileCheckedTabs.length / tileCols)}, minmax(0, 1fr))`,
           gap: '2px', background: '#30363d', width: '100%',
         }}>
-          {checkedTabs.map(tab => (
+          {tileCheckedTabs.map(tab => (
             <div key={tab.id} style={{
               display: 'flex', flexDirection: 'column', background: '#0d1117', minHeight: 0, minWidth: 0, overflow: 'hidden',
               border: focusedTileId === tab.id ? '2px solid #58a6ff' : '2px solid transparent',
