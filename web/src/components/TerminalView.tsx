@@ -105,6 +105,8 @@ export function TerminalView({ onBack }: Props) {
 
     container.innerHTML = '';
     term.open(container);
+    // Suppress browser context menu so tmux right-click menus work
+    term.element?.addEventListener('contextmenu', (e) => e.preventDefault());
     setTimeout(() => {
       try { fitAddon.fit(); } catch {}
     }, 50);
