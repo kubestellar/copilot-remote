@@ -43,6 +43,50 @@ function getServerUrls() {
   return { token, serverUrl, wsUrl };
 }
 
+const TAB_NAMES_KEY = 'copilot-remote-tab-names';
+
+/** Load cached tab names from localStorage (keyed by tmux session name) */
+function loadTabNameCache(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(TAB_NAMES_KEY) || '{}');
+  } catch { return {}; }
+}
+
+/** Save tab name cache to localStorage */
+function saveTabNameCache(cache: Record<string, string>) {
+  localStorage.setItem(TAB_NAMES_KEY, JSON.stringify(cache));
+}
+
+/** Get a cached name for a tmux session, or null */
+function getCachedTabName(tmuxSession: string): string | null {
+  if (!tmuxSession) return null;
+  return loadTabNameCache()[tmuxSession] || null;
+}
+
+/** Cache a tab name by tmux session */
+function setCachedTabName(tmuxSession: string, name: string) {
+  if (!tmuxSession) return;
+  const cache = loadTabNameCache();
+  cache[tmuxSession] = name;
+  saveTabNameCache(cache);
+}
+
+/** Remove a cached tab name */
+function removeCachedTabName(tmuxSession: string) {
+  if (!tmuxSession) return;
+  const cache = loadTabNameCache();
+  delete cache[tmuxSession];
+  saveTabNameCache(cache);
+}
+
+/** Generate a unique tab name given existing tab names */
+function uniqueName(baseName: string, existingNames: string[]): string {
+  if (!existingNames.includes(baseName)) return baseName;
+  let i = 2;
+  while (existingNames.includes(`${baseName}-${i}`)) i++;
+  return `${baseName}-${i}`;
+}
+
 const TERM_OPTS: ConstructorParameters<typeof Terminal>[0] = {
   cursorBlink: true,
   fontSize: 14,
@@ -244,10 +288,13 @@ export function TerminalView({ onBack }: Props) {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+      const baseName = aiCli || `Shell ${tabsRef.current.length + 1}`;
+      const name = getCachedTabName(data.tmuxSession) || uniqueName(baseName, tabsRef.current.map(t => t.name));
+      setCachedTabName(data.tmuxSession || '', name);
       const newTab: TermTab = {
         id: data.id,
         tmuxSession: data.tmuxSession || '',
-        name: aiCli || `Shell ${tabsRef.current.length + 1}`,
+        name,
         checked: false,
       };
       setTabs(prev => [...prev, newTab]);
@@ -262,6 +309,7 @@ export function TerminalView({ onBack }: Props) {
   const killTmuxSession = useCallback(async (sessionName: string) => {
     const { token, serverUrl } = getServerUrls();
     try {
+      removeCachedTabName(sessionName);
       await fetch(`${serverUrl}/api/tmux-sessions/${encodeURIComponent(sessionName)}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
@@ -305,11 +353,15 @@ export function TerminalView({ onBack }: Props) {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+      const cachedName = getCachedTabName(data.tmuxSession || tmuxSession);
+      const name = cachedName || uniqueName(tmuxSession, tabsRef.current.map(t => t.name));
+      setCachedTabName(data.tmuxSession || tmuxSession, name);
       const newTab: TermTab = {
         id: data.id,
         tmuxSession: data.tmuxSession || tmuxSession,
-        name: tmuxSession,
+        name,
         checked: false,
+        userRenamed: !!cachedName,
       };
       setTabs(prev => [...prev, newTab]);
       setActiveTabId(data.id);
@@ -341,7 +393,10 @@ export function TerminalView({ onBack }: Props) {
             if (!data.error) {
               setTabs(prev => {
                 if (prev.some(t => t.tmuxSession === s)) return prev;
-                return [...prev, { id: data.id, tmuxSession: data.tmuxSession || s, name: s, checked: false }];
+                const cachedName = getCachedTabName(data.tmuxSession || s);
+                const name = cachedName || uniqueName(s, prev.map(t => t.name));
+                setCachedTabName(data.tmuxSession || s, name);
+                return [...prev, { id: data.id, tmuxSession: data.tmuxSession || s, name, checked: false, userRenamed: !!cachedName }];
               });
             }
           }
@@ -382,6 +437,7 @@ export function TerminalView({ onBack }: Props) {
     const { token, serverUrl } = getServerUrls();
     const tab = tabsRef.current.find(t => t.id === id);
     if (tab?.tmuxSession) {
+      removeCachedTabName(tab.tmuxSession);
       fetch(`${serverUrl}/api/tmux-sessions/${encodeURIComponent(tab.tmuxSession)}`, {
         method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
       }).catch(() => {});
@@ -422,12 +478,21 @@ export function TerminalView({ onBack }: Props) {
           }
           const unique = Array.from(bySession.values());
           // Restore tabs for unique terminals
-          const restored: TermTab[] = unique.map((t, i) => ({
-            id: t.id,
-            tmuxSession: t.tmuxSession || '',
-            name: t.lastCommand || t.tmuxSession || `Shell ${i + 1}`,
-            checked: false,
-          }));
+          const usedNames: string[] = [];
+          const restored: TermTab[] = unique.map((t, i) => {
+            const cached = getCachedTabName(t.tmuxSession);
+            const baseName = cached || t.lastCommand || t.tmuxSession || `Shell ${i + 1}`;
+            const name = uniqueName(baseName, usedNames);
+            usedNames.push(name);
+            if (t.tmuxSession) setCachedTabName(t.tmuxSession, name);
+            return {
+              id: t.id,
+              tmuxSession: t.tmuxSession || '',
+              name,
+              checked: false,
+              userRenamed: !!cached,
+            };
+          });
           setTabs(restored);
           setActiveTabId(restored[0].id);
           // Clean up duplicates only (not empty-lastCommand ones — they may be re-adopted)
@@ -638,7 +703,7 @@ export function TerminalView({ onBack }: Props) {
       <Box sx={{
         display: 'flex', alignItems: 'center',
         borderBottom: '1px solid', borderColor: 'border.default',
-        bg: 'canvas.subtle', minHeight: '36px',
+        bg: 'canvas.subtle', height: '36px',
       }}>
         {onBack && (
           <IconButton icon={ArrowLeftIcon} aria-label="Back" variant="invisible" size="small" sx={{ mx: 1 }} onClick={onBack} />
@@ -658,8 +723,7 @@ export function TerminalView({ onBack }: Props) {
                   cursor: 'pointer',
                   borderRight: '1px solid', borderColor: 'border.muted',
                   bg: !tileMode && tab.id === activeTabId ? 'canvas.default' : (tileMode && tab.id === focusedTileId ? 'canvas.default' : 'transparent'),
-                  borderBottom: !tileMode && tab.id === activeTabId ? '2px solid' : (tileMode && tab.id === focusedTileId ? '2px solid' : '2px solid transparent'),
-                  borderBottomColor: !tileMode && tab.id === activeTabId ? 'accent.fg' : (tileMode && tab.id === focusedTileId ? 'accent.fg' : 'transparent'),
+                  boxShadow: (!tileMode && tab.id === activeTabId) || (tileMode && tab.id === focusedTileId) ? 'inset 0 -2px 0 var(--fgColor-accent, #58a6ff)' : 'none',
                   ':hover': { bg: 'canvas.default' },
                   maxWidth: 500, minWidth: 150, flexShrink: 0,
                 }}
@@ -685,7 +749,10 @@ export function TerminalView({ onBack }: Props) {
                       onKeyDown={e => {
                         if (e.key === 'Enter') {
                           const trimmed = renameValue.trim();
-                          if (trimmed) setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, name: trimmed, userRenamed: true } : t));
+                          if (trimmed) {
+                            setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, name: trimmed, userRenamed: true } : t));
+                            setCachedTabName(tab.tmuxSession, trimmed);
+                          }
                           setRenamingTabId(null);
                         } else if (e.key === 'Escape') {
                           setRenamingTabId(null);
@@ -694,7 +761,10 @@ export function TerminalView({ onBack }: Props) {
                       }}
                       onBlur={() => {
                         const trimmed = renameValue.trim();
-                        if (trimmed) setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, name: trimmed, userRenamed: true } : t));
+                        if (trimmed) {
+                          setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, name: trimmed, userRenamed: true } : t));
+                          setCachedTabName(tab.tmuxSession, trimmed);
+                        }
                         setRenamingTabId(null);
                       }}
                       onClick={e => e.stopPropagation()}
@@ -715,7 +785,7 @@ export function TerminalView({ onBack }: Props) {
                     as="button"
                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); closeAndTerminateTab(tab.id); }}
                     title="Terminate tmux session"
-                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, display: 'flex', flexShrink: 0, ':hover': { color: 'danger.fg' } }}
+                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: 'danger.fg' } }}
                   >
                     <TrashIcon size={12} />
                   </Box>
@@ -723,7 +793,7 @@ export function TerminalView({ onBack }: Props) {
                 <Box
                   as="button"
                   onClick={(e: React.MouseEvent) => { e.stopPropagation(); closeTab(tab.id); }}
-                  sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, display: 'flex', flexShrink: 0, ':hover': { color: 'danger.fg' } }}
+                  sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: 'danger.fg' } }}
                 >
                   <XIcon size={12} />
                 </Box>
