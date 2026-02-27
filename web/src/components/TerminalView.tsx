@@ -315,9 +315,11 @@ export function TerminalView({ onBack }: Props) {
     fetch(`${serverUrl}/api/terminals`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(r => r.json())
       .then((existing: { id: string; tmuxSession: string; lastCommand: string }[]) => {
-        if (existing.length > 0) {
-          // Restore tabs for existing terminals
-          const restored: TermTab[] = existing.map((t, i) => ({
+        // Filter to terminals that have an AI CLI running
+        const withCli = existing.filter(t => t.lastCommand && t.lastCommand !== '');
+        if (withCli.length > 0) {
+          // Restore tabs for terminals with active AI CLIs
+          const restored: TermTab[] = withCli.map((t, i) => ({
             id: t.id,
             tmuxSession: t.tmuxSession || '',
             name: t.lastCommand || t.tmuxSession || `Shell ${i + 1}`,
@@ -325,15 +327,26 @@ export function TerminalView({ onBack }: Props) {
           }));
           setTabs(restored);
           setActiveTabId(restored[0].id);
+          // Clean up stale terminals without CLIs
+          for (const t of existing.filter(e => !e.lastCommand)) {
+            fetch(`${serverUrl}/api/terminals/${t.id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` },
+            }).catch(() => {});
+          }
         } else {
-          // No existing terminals — fetch AI CLIs and show chooser or auto-create
+          // No terminals with AI CLIs — clean up stale ones and start fresh
+          for (const t of existing) {
+            fetch(`${serverUrl}/api/terminals/${t.id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` },
+            }).catch(() => {});
+          }
+          // Fetch AI CLIs and auto-launch
           fetch(`${serverUrl}/api/ai-clis`, { headers: { 'Authorization': `Bearer ${token}` } })
             .then(r => r.json())
             .then((clis: { name: string }[]) => {
-              if (clis.length > 1) {
-                // Multiple CLIs — auto-launch the first one (usually copilot)
-                addTab(clis[0].name);
-              } else if (clis.length === 1) {
+              if (clis.length >= 1) {
                 addTab(clis[0].name);
               } else {
                 addTab();

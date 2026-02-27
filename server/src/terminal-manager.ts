@@ -68,6 +68,16 @@ class TerminalManager extends EventEmitter {
       });
     }
 
+    const terminal: Terminal = {
+      id,
+      pty: term,
+      cwd: resolvedCwd,
+      createdAt: new Date().toISOString(),
+      tmuxSession: TMUX_PATH ? tmuxName : '',
+      lastCommand: aiCli || '',
+      inputBuffer: '',
+    };
+
     // Auto-launch AI CLI after shell is ready
     if (aiCli) {
       const cli = AI_CLIS.find(c => c.name === aiCli);
@@ -75,16 +85,6 @@ class TerminalManager extends EventEmitter {
         setTimeout(() => term.write(`${cli.name}\r`), 500);
       }
     }
-
-    const terminal: Terminal = {
-      id,
-      pty: term,
-      cwd: resolvedCwd,
-      createdAt: new Date().toISOString(),
-      tmuxSession: TMUX_PATH ? tmuxName : '',
-      lastCommand: '',
-      inputBuffer: '',
-    };
 
     term.onData((data) => {
       this.emit('data', id, data);
