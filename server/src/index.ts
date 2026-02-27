@@ -389,6 +389,9 @@ setInterval(() => {
 // Start
 server.listen(PORT, '0.0.0.0', () => {
   const token = getOrCreateToken();
+  // Re-adopt orphaned cr-* tmux sessions from previous server runs
+  const adopted = terminalManager.reAdoptOrphanedSessions();
+  if (adopted > 0) console.log(`♻️  Re-adopted ${adopted} orphaned tmux session(s)`);
   console.log(`\n🚀 Copilot Remote server running on http://0.0.0.0:${PORT}`);
   console.log(`\n🔑 Auth token: ${token}`);
   console.log(`\n   Use this token to connect from your phone.`);

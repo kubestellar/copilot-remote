@@ -359,13 +359,13 @@ export function TerminalView({ onBack }: Props) {
     fetch(`${serverUrl}/api/terminals`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(r => r.json())
       .then((existing: { id: string; tmuxSession: string; lastCommand: string }[]) => {
-        // Filter to terminals that have an AI CLI running
-        const withCli = existing.filter(t => t.lastCommand && t.lastCommand !== '');
-        if (withCli.length > 0) {
+        // Restore terminals that have a CLI running OR a tmux session (re-adopted)
+        const restorable = existing.filter(t => (t.lastCommand && t.lastCommand !== '') || t.tmuxSession);
+        if (restorable.length > 0) {
           // Deduplicate by tmux session — keep latest per session, delete extras
-          const bySession = new Map<string, typeof withCli[0]>();
-          const dupes: typeof withCli = [];
-          for (const t of withCli) {
+          const bySession = new Map<string, typeof restorable[0]>();
+          const dupes: typeof restorable = [];
+          for (const t of restorable) {
             const key = t.tmuxSession || t.id;
             if (bySession.has(key)) {
               dupes.push(bySession.get(key)!);
@@ -382,9 +382,8 @@ export function TerminalView({ onBack }: Props) {
           }));
           setTabs(restored);
           setActiveTabId(restored[0].id);
-          // Clean up stale terminals without CLIs + duplicates
-          const toDelete = [...existing.filter(e => !e.lastCommand), ...dupes];
-          for (const t of toDelete) {
+          // Clean up duplicates only (not empty-lastCommand ones — they may be re-adopted)
+          for (const t of dupes) {
             fetch(`${serverUrl}/api/terminals/${t.id}`, {
               method: 'DELETE',
               headers: { 'Authorization': `Bearer ${token}` },

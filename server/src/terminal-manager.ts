@@ -218,6 +218,55 @@ class TerminalManager extends EventEmitter {
       lastCommand: t.lastCommand,
     }));
   }
+
+  /** Re-adopt orphaned cr-* tmux sessions from a previous server run */
+  reAdoptOrphanedSessions(): number {
+    if (!TMUX_PATH) return 0;
+    const sessions = this.listTmuxSessions().filter(s => s.startsWith('cr-'));
+    let adopted = 0;
+    for (const s of sessions) {
+      // Skip if already managed
+      if (Array.from(this.terminals.values()).some(t => t.tmuxSession === s)) continue;
+      const id = `term-${s.replace('cr-', '')}`;
+      try {
+        // Directly attach to the existing session (no grouped session)
+        const envNoTmux = { ...process.env, TERM: 'xterm-256color' } as Record<string, string>;
+        delete envNoTmux.TMUX;
+        const term = pty.spawn(TMUX_PATH, [
+          'attach-session', '-t', s,
+        ], {
+          name: 'xterm-256color',
+          cols: 80,
+          rows: 24,
+          cwd: homedir(),
+          env: envNoTmux,
+        });
+
+        const terminal: Terminal = {
+          id,
+          pty: term,
+          cwd: homedir(),
+          createdAt: new Date().toISOString(),
+          tmuxSession: s,
+          lastCommand: s,  // Use session name so client doesn't treat as stale
+          inputBuffer: '',
+        };
+
+        term.onData((data) => this.emit('data', id, data));
+        term.onExit(({ exitCode }) => {
+          this.emit('exit', id, exitCode);
+          this.terminals.delete(id);
+        });
+
+        this.terminals.set(id, terminal);
+        adopted++;
+        console.log(`[Terminal] Re-adopted orphaned tmux session: ${s}`);
+      } catch (err: any) {
+        console.error(`[Terminal] Failed to re-adopt ${s}: ${err.message}`);
+      }
+    }
+    return adopted;
+  }
 }
 
 export const terminalManager = new TerminalManager();
