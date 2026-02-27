@@ -534,20 +534,30 @@ export function TerminalView({ onBack }: Props) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Mount active terminal to its own container (non-tile mode)
+  // Eagerly create terminal connections for ALL tabs so content is ready before switching
+  useEffect(() => {
+    if (!fontReady || tileMode) return;
+    for (const tab of tabs) {
+      const container = singleContainerRefs.current.get(tab.id);
+      if (!container) continue;
+      if (termInstances.has(tab.id)) continue;
+      createTermConnection(tab.id, container);
+    }
+  }, [tabs, fontReady, tileMode, createTermConnection]);
+
+  // Handle active tab: focus terminal, or remount from tile mode
   useEffect(() => {
     if (!fontReady || tileMode || !activeTabId) return;
     const container = singleContainerRefs.current.get(activeTabId);
     if (!container) return;
     const inst = termInstances.get(activeTabId);
     if (inst && inst.term.element?.parentElement === container) {
-      // Already mounted — just refit
-      setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
+      // Already mounted in correct container — just focus
       inst.term.focus();
       return;
     }
     if (inst) {
-      // Restore full font size and mount into this tab's own container
+      // Terminal exists but in wrong container (e.g. returning from tile mode)
       inst.term.options.fontSize = 14;
       container.innerHTML = '';
       if (inst.term.element) {
@@ -558,27 +568,19 @@ export function TerminalView({ onBack }: Props) {
       inst.container = container;
       setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
       inst.term.focus();
-    } else if (tabs.find(t => t.id === activeTabId)) {
-      // New terminal — connect
-      createTermConnection(activeTabId, container);
     }
   }, [activeTabId, tileMode, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle window resize
+  // Handle window resize — fit all terminals since visibility:hidden preserves layout
   useEffect(() => {
     const handleResize = () => {
-      if (tileMode) {
-        for (const [, inst] of termInstances) {
-          try { inst.fitAddon.fit(); } catch {}
-        }
-      } else {
-        const inst = activeTabId ? termInstances.get(activeTabId) : null;
-        if (inst) try { inst.fitAddon.fit(); } catch {}
+      for (const [, inst] of termInstances) {
+        try { inst.fitAddon.fit(); } catch {}
       }
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [activeTabId, tileMode]);
+  }, [tileMode]);
 
   const checkedTabs = tabs.filter(t => t.checked);
   const hasChecked = checkedTabs.length > 0;
@@ -962,7 +964,8 @@ export function TerminalView({ onBack }: Props) {
               }}
               sx={{
                 position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, p: 1,
-                display: tab.id === activeTabId ? 'block' : 'none',
+                visibility: tab.id === activeTabId ? 'visible' : 'hidden',
+                pointerEvents: tab.id === activeTabId ? 'auto' : 'none',
                 '& .xterm': { height: '100%' },
                 '& .xterm-viewport': { overflow: 'hidden !important' },
               }}
