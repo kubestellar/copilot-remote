@@ -879,15 +879,15 @@ export function TerminalView({ onBack }: Props) {
         <Box sx={{ flex: 1 }} />
       </Box>
 
-      {/* Tmux info bar */}
-      {!tileMode && activeTab?.tmuxSession && (
-        <Box sx={{ px: 2, py: '3px', bg: 'canvas.inset', borderBottom: '1px solid', borderColor: 'border.muted', display: 'flex', alignItems: 'center', gap: 2 }}>
+      {/* Tmux info bar — always rendered with fixed height to prevent layout jitter */}
+      {!tileMode && (
+        <Box sx={{ px: 2, py: '3px', bg: 'canvas.inset', borderBottom: '1px solid', borderColor: 'border.muted', display: 'flex', alignItems: 'center', gap: 2, height: '24px', visibility: activeTab?.tmuxSession ? 'visible' : 'hidden' }}>
           <Text sx={{ fontSize: '11px', color: 'fg.muted', fontFamily: 'mono' }}>
-            tmux attach -t {activeTab.tmuxSession}
+            tmux attach -t {activeTab?.tmuxSession}
           </Text>
           <Box
             as="button"
-            onClick={() => { navigator.clipboard.writeText(`tmux attach -t ${activeTab.tmuxSession}`); }}
+            onClick={() => { if (activeTab?.tmuxSession) navigator.clipboard.writeText(`tmux attach -t ${activeTab.tmuxSession}`); }}
             sx={{ bg: 'transparent', border: '1px solid', borderColor: 'border.muted', borderRadius: 1, color: 'fg.muted', cursor: 'pointer', px: 1, py: 0, fontSize: '10px', ':hover': { color: 'fg.default', borderColor: 'border.default' } }}
           >
             copy
