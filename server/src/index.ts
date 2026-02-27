@@ -279,6 +279,11 @@ app.get('/api/tmux-sessions', (_req, res) => {
   res.json(available);
 });
 
+app.get('/api/tmux-sessions/:name/title', (req, res) => {
+  const title = terminalManager.getTmuxPaneTitle(req.params.name);
+  res.json({ title });
+});
+
 app.delete('/api/terminals/:id', (req, res) => {
   const killed = terminalManager.destroy(req.params.id);
   res.json({ killed });

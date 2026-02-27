@@ -24,6 +24,7 @@ interface TermTab {
   name: string;
   checked: boolean;
   userRenamed?: boolean;
+  lastIntent?: string;
 }
 
 const termInstances = new Map<string, {
@@ -137,6 +138,7 @@ export function TerminalView({ onBack }: Props) {
   const [renameValue, setRenameValue] = useState('');
   const singleContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const tileContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const intentRef = useRef<Map<string, string>>(new Map());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
 
@@ -240,6 +242,15 @@ export function TerminalView({ onBack }: Props) {
 
     term.onResize(({ cols, rows }) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    });
+
+    // Capture pane title changes (set by CLI tools like Copilot via \033]0;...\007)
+    term.onTitleChange((title) => {
+      const prev = intentRef.current.get(tabId);
+      if (title && title !== prev) {
+        intentRef.current.set(tabId, title);
+        setTabs(p => p.map(t => t.id === tabId ? { ...t, lastIntent: title } : t));
+      }
     });
   }, []);
 
@@ -569,7 +580,21 @@ export function TerminalView({ onBack }: Props) {
     for (const tab of tabs) {
       const container = singleContainerRefs.current.get(tab.id);
       if (!container) continue;
-      if (termInstances.has(tab.id)) continue;
+      const existing = termInstances.get(tab.id);
+      if (existing) {
+        // If terminal is in the wrong container (returning from tile mode), move it back
+        if (existing.term.element && existing.term.element.parentElement !== container) {
+          existing.term.options.fontSize = 14;
+          container.innerHTML = '';
+          container.appendChild(existing.term.element);
+          existing.container = container;
+          requestAnimationFrame(() => {
+            try { existing.fitAddon.fit(); } catch {}
+            existing.term.refresh(0, existing.term.rows - 1);
+          });
+        }
+        continue;
+      }
       createTermConnection(tab.id, container);
     }
   }, [tabs, fontReady, tileActive, createTermConnection]);
@@ -596,7 +621,11 @@ export function TerminalView({ onBack }: Props) {
         inst.term.open(container);
       }
       inst.container = container;
-      setTimeout(() => { try { inst.fitAddon.fit(); } catch {} }, 50);
+      // Force full redraw after reparenting (element was in detached tile container)
+      setTimeout(() => {
+        try { inst.fitAddon.fit(); } catch {}
+        inst.term.refresh(0, inst.term.rows - 1);
+      }, 50);
       inst.term.focus();
     }
   }, [activeTabId, tileActive, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -611,6 +640,30 @@ export function TerminalView({ onBack }: Props) {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [tileMode]);
+
+  // Poll tmux pane titles for intent display (covers titles set before we attached)
+  useEffect(() => {
+    const { serverUrl, token } = getServerUrls();
+    const poll = () => {
+      for (const tab of tabsRef.current) {
+        if (!tab.tmuxSession) continue;
+        fetch(`${serverUrl}/api/tmux-sessions/${encodeURIComponent(tab.tmuxSession)}/title`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        })
+          .then(r => r.json())
+          .then(({ title }: { title: string }) => {
+            if (title && title !== intentRef.current.get(tab.id)) {
+              intentRef.current.set(tab.id, title);
+              setTabs(p => p.map(t => t.id === tab.id ? { ...t, lastIntent: title } : t));
+            }
+          })
+          .catch(() => {});
+      }
+    };
+    poll();
+    const iv = setInterval(poll, 8000);
+    return () => clearInterval(iv);
+  }, [tabs.length]);
 
   const checkedTabs = tabs.filter(t => t.checked);
   const hasChecked = checkedTabs.length > 0;
@@ -745,6 +798,7 @@ export function TerminalView({ onBack }: Props) {
             return (
               <Box
                 key={tab.id}
+                title={tab.lastIntent || tab.name}
                 sx={{
                   display: 'flex', alignItems: 'center', gap: 1,
                   px: 2, py: '5px',
@@ -952,6 +1006,11 @@ export function TerminalView({ onBack }: Props) {
                 <span style={{ fontSize: 10, fontFamily: 'monospace', color: focusedTileId === tab.id ? '#ffffff' : '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {tab.name}
                 </span>
+                {tab.lastIntent && (
+                  <span style={{ fontSize: 9, fontStyle: 'italic', color: focusedTileId === tab.id ? '#a5d6ff' : '#58a6ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    — {tab.lastIntent}
+                  </span>
+                )}
                 {tab.tmuxSession && (
                   <>
                     <span style={{ fontSize: 9, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681', fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0 }}>
