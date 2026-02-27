@@ -736,7 +736,7 @@ export function TerminalView({ onBack }: Props) {
                   style={{ margin: 0, cursor: 'pointer' }}
                 />
                 <Box
-                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); if (!tileMode) setActiveTabId(tab.id); }}
                   onDoubleClick={(e: React.MouseEvent) => { e.stopPropagation(); setRenamingTabId(tab.id); setRenameValue(tab.name); }}
                   sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, overflow: 'hidden' }}
                 >
