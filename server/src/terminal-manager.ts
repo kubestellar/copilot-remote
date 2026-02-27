@@ -36,11 +36,15 @@ class TerminalManager extends EventEmitter {
 
   constructor() {
     super();
-    // Set tmux global defaults so all sessions (including ones created by copilot CLI) use largest
+    // Set tmux global defaults and hooks so ALL sessions always use largest window-size
     if (TMUX_PATH) {
       try {
         execSync(`${TMUX_PATH} set-option -g window-size largest`, { stdio: 'ignore' });
         execSync(`${TMUX_PATH} set-option -g aggressive-resize on`, { stdio: 'ignore' });
+        // Install hooks to auto-set window-size largest on every new session and client attach
+        // This catches sessions created by copilot CLI or any other tool
+        execSync(`${TMUX_PATH} set-hook -g session-created 'set-option window-size largest'`, { stdio: 'ignore' });
+        execSync(`${TMUX_PATH} set-hook -g client-attached 'set-option window-size largest'`, { stdio: 'ignore' });
       } catch {}
     }
   }
@@ -55,12 +59,12 @@ class TerminalManager extends EventEmitter {
 
     let term: pty.IPty;
     if (TMUX_PATH) {
-      // Spawn inside tmux with mouse, aggressive-resize, window-size latest
+      // Spawn inside tmux with mouse, aggressive-resize, window-size largest (per-session)
       term = pty.spawn(TMUX_PATH, [
         'new-session', '-s', tmuxName, '-x', '80', '-y', '24',
-        ';', 'set', '-g', 'mouse', 'on',
-        ';', 'set', '-g', 'window-size', 'largest',
-        ';', 'set', '-g', 'aggressive-resize', 'on',
+        ';', 'set', 'mouse', 'on',
+        ';', 'set', 'window-size', 'largest',
+        ';', 'set', 'aggressive-resize', 'on',
       ], {
         name: 'xterm-256color',
         cols: 80,
@@ -127,9 +131,9 @@ class TerminalManager extends EventEmitter {
     } catch {}
     const term = pty.spawn(TMUX_PATH, [
       'new-session', '-s', groupName, '-t', tmuxSession,
-      ';', 'set', '-g', 'mouse', 'on',
-      ';', 'set', '-g', 'window-size', 'largest',
-      ';', 'set', '-g', 'aggressive-resize', 'on',
+      ';', 'set', 'mouse', 'on',
+      ';', 'set', 'window-size', 'largest',
+      ';', 'set', 'aggressive-resize', 'on',
     ], {
       name: 'xterm-256color',
       cols: 80,
@@ -283,8 +287,8 @@ class TerminalManager extends EventEmitter {
         delete envNoTmux.TMUX;
         const term = pty.spawn(TMUX_PATH, [
           'new-session', '-s', groupName, '-t', s,
-          ';', 'set', '-g', 'window-size', 'largest',
-          ';', 'set', '-g', 'aggressive-resize', 'on',
+          ';', 'set', 'window-size', 'largest',
+          ';', 'set', 'aggressive-resize', 'on',
         ], {
           name: 'xterm-256color',
           cols: 80,

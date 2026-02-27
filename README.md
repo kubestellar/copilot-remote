@@ -2,6 +2,23 @@
 
 Control AI coding agents from any device. Manage Copilot CLI and Claude Code sessions, launch tiled web terminals with tmux, and stream real-time output — all from a mobile-friendly interface over your local network.
 
+## Screenshots
+
+### Session Browser
+Browse and manage all your AI CLI sessions — active, ended, and historical — with custom names, tags, and real-time status indicators.
+
+![Session Browser](docs/screenshots/sessions-list.png)
+
+### Tiled Terminals
+Run multiple AI agents side-by-side in a tiled grid. Each tile is a live tmux session with independent sizing, copy support, and tmux attach commands.
+
+![Tiled Terminals](docs/screenshots/tiled-terminals.png)
+
+### Single Terminal
+Full-screen terminal view with tab bar, green status dots for connected sessions, and one-click tmux attach copy.
+
+![Single Terminal](docs/screenshots/single-terminal.png)
+
 ## How It Works
 
 ```
@@ -28,15 +45,20 @@ The **web app** is a React PWA built with [GitHub Primer](https://primer.style/r
 - **💬 iMessage-style Chat** — Send messages and see responses as compact chat bubbles with markdown rendering, inline 🤖 icons, and short timestamps
 - **⚡ ACP Streaming** — Real-time streaming via the Agent Client Protocol with persistent `copilot --acp` processes for multi-turn conversations with live text chunks and tool call status
 - **🔄 Resume Sessions** — Pick up where you left off with `--resume <sessionId>`
-- **🗑️ Delete Sessions** — Remove sessions directly from the session list
+- **🗑️ Delete & Purge Sessions** — Hide sessions from the list or permanently delete session files from disk with a confirmation dialog
 
 ### Web Terminals
 - **🖥️ Interactive Terminals** — Full terminal emulation powered by xterm.js and node-pty, with cursor blinking, link detection, and responsive sizing
 - **📐 Tile Mode** — Multiple terminals in a tiled grid layout on desktop, each showing a live xterm.js window with independent focus and keyboard shortcuts
 - **🔗 Tmux Integration** — Terminals automatically run inside tmux sessions (`cr-<id>`) with mouse support, allowing sessions to persist and be reattached
+- **🔍 Auto-discover** — New tmux sessions started on your desktop automatically appear as tabs in the web UI within seconds (polls every 3s)
+- **♻️ Restart Resilience** — Server re-adopts orphaned tmux sessions on restart; no zombie accumulation across restarts
+- **📏 Independent Sizing** — Each client (web and desktop terminal) gets its own window size via tmux session groups — no more dot-filled screens
 - **🤖 Auto-launch AI CLI** — Automatically detects installed AI tools (Copilot CLI, Claude Code) and launches them in new terminals
+- **🧹 Auto-cleanup** — Tabs automatically disappear 2 seconds after their underlying process exits
 - **📋 Tmux Copy** — Copy tmux session info from tile headers for easy external attach
 - **⌨️ Keyboard Shortcuts** — Navigate and manage tiles with keyboard shortcuts
+- **🖱️ Right-click Support** — Browser context menu suppressed on terminal so tmux's native right-click menus work
 
 ### Organization
 - **🏷️ Session Names** — Rename sessions inline with a tap on the pencil icon
@@ -49,10 +71,12 @@ The **web app** is a React PWA built with [GitHub Primer](https://primer.style/r
 - **🌙 Dark Mode** — Proper dark theme using Primer's `dark_dimmed` scheme with explicit high-contrast colors
 
 ### Reliability
-- **🔁 Auto-reconnect** — WebSocket reconnects automatically with 3-second backoff; terminals auto-reconnect on server restart
+- **🔁 Auto-reconnect** — WebSocket reconnects automatically with exponential backoff; terminals auto-reconnect on server restart
+- **♻️ Tmux Re-adopt** — On server restart, orphaned tmux sessions are automatically re-adopted with new grouped sessions — no zombie accumulation
 - **🔄 Auto-restart** — `start.sh` script keeps both servers alive with infinite restart loops
 - **🔒 Token Auth** — Server generates a random 256-bit token on first run; all API/WebSocket calls require it
 - **🤖 Auto-QA** — GitHub Actions workflow runs hourly quality checks (build, lint, security, a11y, performance) with rotating focus areas
+- **🧹 Session Dedup** — Server prevents duplicate terminal attachments; client cleans up stale terminals on reconnect
 
 ### Performance
 - **⚡ Memoized Rendering** — `React.memo` on MessageBubble and `useMemo` on message arrays prevent re-rendering 500+ messages on every keystroke
@@ -195,6 +219,7 @@ All endpoints (except health) require `Authorization: Bearer <token>` header.
 | `POST` | `/api/sessions` | Start new session `{ prompt?, cwd?, resume? }` |
 | `GET` | `/api/sessions/:id` | Session details + last 500 messages |
 | `DELETE` | `/api/sessions/:id` | Kill a running session |
+| `DELETE` | `/api/sessions/:id/purge` | Permanently delete session files from disk |
 | `POST` | `/api/sessions/:id/send` | Send message `{ text }` to running session |
 | `PATCH` | `/api/sessions/:id/meta` | Update session name `{ name }` |
 | `POST` | `/api/sessions/:id/tags/:tag` | Add a tag to a session |
