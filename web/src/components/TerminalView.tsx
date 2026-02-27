@@ -377,6 +377,18 @@ export function TerminalView({ onBack }: Props) {
     });
   }, [activeTabId]);
 
+  /** Close tab AND terminate the underlying tmux session */
+  const closeAndTerminateTab = useCallback((id: string) => {
+    const { token, serverUrl } = getServerUrls();
+    const tab = tabsRef.current.find(t => t.id === id);
+    if (tab?.tmuxSession) {
+      fetch(`${serverUrl}/api/tmux-sessions/${encodeURIComponent(tab.tmuxSession)}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+      }).catch(() => {});
+    }
+    closeTab(id);
+  }, [closeTab]);
+
   const closeTabRef = useRef(closeTab);
   closeTabRef.current = closeTab;
 
@@ -698,6 +710,16 @@ export function TerminalView({ onBack }: Props) {
                     </Text>
                   )}
                 </Box>
+                {tab.tmuxSession && (
+                  <Box
+                    as="button"
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); closeAndTerminateTab(tab.id); }}
+                    title="Terminate tmux session"
+                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, display: 'flex', flexShrink: 0, ':hover': { color: 'danger.fg' } }}
+                  >
+                    <TrashIcon size={12} />
+                  </Box>
+                )}
                 <Box
                   as="button"
                   onClick={(e: React.MouseEvent) => { e.stopPropagation(); closeTab(tab.id); }}
