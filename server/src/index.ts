@@ -267,7 +267,10 @@ app.post('/api/terminals/attach', (req, res) => {
 });
 
 app.get('/api/tmux-sessions', (_req, res) => {
-  res.json(terminalManager.listTmuxSessions());
+  // Filter out sessions already managed by a terminal
+  const managed = new Set(terminalManager.list().map(t => t.tmuxSession));
+  const available = terminalManager.listTmuxSessions().filter(s => !managed.has(s));
+  res.json(available);
 });
 
 app.delete('/api/terminals/:id', (req, res) => {
