@@ -87,7 +87,23 @@ function uniqueName(baseName: string, existingNames: string[]): string {
   return `${baseName}-${i}`;
 }
 
-const TERM_OPTS: ConstructorParameters<typeof Terminal>[0] = {
+const CHECKED_TILES_KEY = 'copilot-remote-checked-tiles';
+const TILE_MODE_KEY = 'copilot-remote-tile-mode';
+
+/** Load saved checked tmux session names */
+function loadCheckedSessions(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(CHECKED_TILES_KEY) || '[]'));
+  } catch { return new Set(); }
+}
+
+/** Save checked tmux session names */
+function saveCheckedSessions(tabs: TermTab[]) {
+  const checked = tabs.filter(t => t.checked && t.tmuxSession).map(t => t.tmuxSession);
+  localStorage.setItem(CHECKED_TILES_KEY, JSON.stringify(checked));
+}
+
+const TERM_OPTS: NonNullable<ConstructorParameters<typeof Terminal>[0]> = {
   cursorBlink: true,
   fontSize: 14,
   fontFamily: '"MesloLGS NF", "Cascadia Code", "Fira Code", "SF Mono", monospace',
@@ -114,7 +130,7 @@ interface Props {
 export function TerminalView({ onBack }: Props) {
   const [tabs, setTabs] = useState<TermTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [tileMode, setTileMode] = useState(false);
+  const [tileMode, setTileMode] = useState(() => localStorage.getItem(TILE_MODE_KEY) === 'true');
   const [fontReady, setFontReady] = useState(false);
   const [focusedTileId, setFocusedTileId] = useState<string | null>(null);
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
@@ -123,6 +139,15 @@ export function TerminalView({ onBack }: Props) {
   const tileContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
+
+  // Persist tile mode and checked tiles to localStorage
+  useEffect(() => {
+    localStorage.setItem(TILE_MODE_KEY, String(tileMode));
+  }, [tileMode]);
+
+  useEffect(() => {
+    saveCheckedSessions(tabs);
+  }, [tabs]);
 
   // Preload terminal font before creating any xterm instances
   useEffect(() => {
@@ -296,7 +321,7 @@ export function TerminalView({ onBack }: Props) {
         id: data.id,
         tmuxSession: data.tmuxSession || '',
         name,
-        checked: false,
+        checked: loadCheckedSessions().has(data.tmuxSession || ''),
       };
       setTabs(prev => [...prev, newTab]);
       setActiveTabId(data.id);
@@ -361,7 +386,7 @@ export function TerminalView({ onBack }: Props) {
         id: data.id,
         tmuxSession: data.tmuxSession || tmuxSession,
         name,
-        checked: false,
+        checked: loadCheckedSessions().has(data.tmuxSession || tmuxSession),
         userRenamed: !!cachedName,
       };
       setTabs(prev => [...prev, newTab]);
@@ -397,7 +422,7 @@ export function TerminalView({ onBack }: Props) {
                 const cachedName = getCachedTabName(data.tmuxSession || s);
                 const name = cachedName || uniqueName(s, prev.map(t => t.name));
                 setCachedTabName(data.tmuxSession || s, name);
-                return [...prev, { id: data.id, tmuxSession: data.tmuxSession || s, name, checked: false, userRenamed: !!cachedName }];
+                return [...prev, { id: data.id, tmuxSession: data.tmuxSession || s, name, checked: loadCheckedSessions().has(data.tmuxSession || s), userRenamed: !!cachedName }];
               });
             }
           }
@@ -480,6 +505,7 @@ export function TerminalView({ onBack }: Props) {
           const unique = Array.from(bySession.values());
           // Restore tabs for unique terminals
           const usedNames: string[] = [];
+           const savedChecked = loadCheckedSessions();
           const restored: TermTab[] = unique.map((t, i) => {
             const cached = getCachedTabName(t.tmuxSession);
             const baseName = cached || t.lastCommand || t.tmuxSession || `Shell ${i + 1}`;
@@ -490,7 +516,7 @@ export function TerminalView({ onBack }: Props) {
               id: t.id,
               tmuxSession: t.tmuxSession || '',
               name,
-              checked: false,
+              checked: savedChecked.has(t.tmuxSession),
               userRenamed: !!cached,
             };
           });

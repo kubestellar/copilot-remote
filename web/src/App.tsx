@@ -12,7 +12,10 @@ import { api } from './lib/api';
 import type { WsMessage, ChatMessage } from './types';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'sessions' | 'terminal'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'terminal'>(() => {
+    const saved = localStorage.getItem('copilot-remote-active-tab');
+    return saved === 'terminal' ? 'terminal' : 'sessions';
+  });
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     () => localStorage.getItem('copilot-remote-active-session')
   );
@@ -100,6 +103,10 @@ export default function App() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('copilot-remote-active-tab', activeTab);
+  }, [activeTab]);
 
   const handleSelectSession = useCallback((id: string) => {
     if (activeSessionId) unsubscribe(activeSessionId);
