@@ -110,15 +110,21 @@ export default function App() {
   }, [activeSessionId, subscribe, unsubscribe, isMobile]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
+    const confirmed = window.confirm(
+      'This will permanently delete the session files from disk (~/.copilot/session-state/).\n\n' +
+      'If this session is actively running, the CLI process may error or crash.\n\n' +
+      'Continue?'
+    );
+    if (!confirmed) return;
     try {
-      await api.killSession(id);
+      await api.purgeSession(id);
       if (activeSessionId === id) {
         setActiveSessionId(null);
         localStorage.removeItem('copilot-remote-active-session');
       }
       refresh();
     } catch (err) {
-      console.error('Delete failed:', err);
+      console.error('Purge failed:', err);
     }
   }, [activeSessionId, refresh]);
 

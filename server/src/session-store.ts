@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, existsSync, statSync } from 'fs';
+import { readdirSync, readFileSync, existsSync, statSync, rmSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { parse as parseYaml } from 'yaml';
@@ -132,4 +132,18 @@ export function getSessionMessages(sessionId: string): ChatMessage[] {
   }
 
   return messages;
+}
+
+/** Delete a session's directory from disk. Returns true if deleted. */
+export function purgeSession(sessionId: string): boolean {
+  // Validate session ID format to prevent path traversal
+  if (!/^[a-f0-9-]+$/i.test(sessionId)) return false;
+  const sessionDir = join(SESSION_STATE_DIR, sessionId);
+  if (!existsSync(sessionDir)) return false;
+  try {
+    rmSync(sessionDir, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }

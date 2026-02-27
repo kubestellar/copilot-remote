@@ -40,6 +40,9 @@ export const api = {
   killSession: (id: string) =>
     request<{ killed: boolean }>(`/api/sessions/${id}`, { method: 'DELETE' }),
 
+  purgeSession: (id: string) =>
+    request<{ deleted: boolean }>(`/api/sessions/${id}/purge`, { method: 'DELETE' }),
+
   updateSessionMeta: (id: string, meta: { name?: string; tags?: string[] }) =>
     request<{ name?: string; tags?: string[] }>(`/api/sessions/${id}/meta`, { method: 'PATCH', body: JSON.stringify(meta) }),
 

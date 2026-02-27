@@ -6,7 +6,7 @@ import { getOrCreateToken, authMiddleware, validateWsToken } from './auth.js';
 import { sessionManager } from './session-manager.js';
 import { acpManager } from './acp-manager.js';
 import { terminalManager } from './terminal-manager.js';
-import { listHistoricalSessions, getSessionDetail, getSessionMessages } from './session-store.js';
+import { listHistoricalSessions, getSessionDetail, getSessionMessages, purgeSession } from './session-store.js';
 import { getAllMeta, updateMeta, addTag, removeTag } from './session-meta.js';
 import type { WsMessage, WsServerMessage } from './types.js';
 
@@ -106,6 +106,12 @@ app.delete('/api/sessions/:id', (req, res) => {
   const killed = sessionManager.killSession(req.params.id);
   updateMeta(req.params.id, { hidden: true });
   res.json({ killed, hidden: true });
+});
+
+app.delete('/api/sessions/:id/purge', (req, res) => {
+  sessionManager.killSession(req.params.id);
+  const deleted = purgeSession(req.params.id);
+  res.json({ deleted });
 });
 
 app.post('/api/sessions/:id/send', async (req, res) => {
