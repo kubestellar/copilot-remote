@@ -154,9 +154,10 @@ export function TerminalView({ onBack }: Props) {
     term.open(container);
     // Suppress browser context menu so tmux right-click menus work
     term.element?.addEventListener('contextmenu', (e) => e.preventDefault());
-    setTimeout(() => {
+    // Fit after layout is computed: rAF ensures DOM layout, then fit
+    requestAnimationFrame(() => {
       try { fitAddon.fit(); } catch {}
-    }, 50);
+    });
 
     const ws = new WebSocket(`${wsUrl}/ws/terminal?token=${token}&id=${tabId}`);
     const inst = { term, fitAddon, ws, connected: false, container, reconnectAttempts: 0, reconnectTimer: null as ReturnType<typeof setTimeout> | null };
@@ -552,7 +553,8 @@ export function TerminalView({ onBack }: Props) {
     if (!container) return;
     const inst = termInstances.get(activeTabId);
     if (inst && inst.term.element?.parentElement === container) {
-      // Already mounted in correct container — just focus
+      // Already mounted in correct container — fit to fill viewport then focus
+      try { inst.fitAddon.fit(); } catch {}
       inst.term.focus();
       return;
     }
@@ -571,25 +573,16 @@ export function TerminalView({ onBack }: Props) {
     }
   }, [activeTabId, tileMode, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ResizeObserver: auto-fit terminals when their containers resize (initial load, window resize, tile/untile)
+  // Handle window resize — fit all terminals since visibility:hidden preserves layout
   useEffect(() => {
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const el = entry.target as HTMLElement;
-        for (const [, inst] of termInstances) {
-          if (inst.container === el) {
-            try { inst.fitAddon.fit(); } catch {}
-            break;
-          }
-        }
+    const handleResize = () => {
+      for (const [, inst] of termInstances) {
+        try { inst.fitAddon.fit(); } catch {}
       }
-    });
-    // Observe all current containers
-    for (const [, container] of singleContainerRefs.current) {
-      observer.observe(container);
-    }
-    return () => observer.disconnect();
-  }, [tabs.length, tileMode]);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [tileMode]);
 
   const checkedTabs = tabs.filter(t => t.checked);
   const hasChecked = checkedTabs.length > 0;
