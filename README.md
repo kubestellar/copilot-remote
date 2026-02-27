@@ -5,7 +5,7 @@ Control AI coding agents from any device. Manage Copilot CLI and Claude Code ses
 ## How It Works
 
 ```
-+---------------------+       local WiFi       +-------------------------+
++---------------------+       local WiFi        +-------------------------+
 |  Phone / Browser    |  <-- WebSocket+REST --> |  Laptop                 |
 |  (PWA)              |      :5173 -> :3001     |  (Node.js server)       |
 |                     |                         |                         |
