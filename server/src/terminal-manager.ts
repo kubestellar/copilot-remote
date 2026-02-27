@@ -110,6 +110,10 @@ class TerminalManager extends EventEmitter {
     const groupName = `cr-${id.replace('term-', '')}`;
     const envNoTmux = { ...process.env, TERM: 'xterm-256color' } as Record<string, string>;
     delete envNoTmux.TMUX;
+    // Set window-size on the TARGET session too (overrides any session-level setting like 'manual')
+    try {
+      execSync(`${TMUX_PATH} set-option -t "${tmuxSession}" window-size largest`, { stdio: 'ignore' });
+    } catch {}
     const term = pty.spawn(TMUX_PATH, [
       'new-session', '-s', groupName, '-t', tmuxSession,
       ';', 'set', '-g', 'mouse', 'on',
@@ -237,21 +241,29 @@ class TerminalManager extends EventEmitter {
       if (!s.startsWith('cr-')) continue;
       // Skip if already managed
       if (Array.from(this.terminals.values()).some(t => t.tmuxSession === s)) continue;
-      // Kill stale grouped sessions (created by previous attach() calls)
-      if (group) {
+      // Kill stale grouped clone sessions (session_name !== session_group means it's a clone)
+      // If session_name === session_group, it's the original session that owns the group — keep it
+      if (group && s !== group) {
         try {
           execSync(`${TMUX_PATH} kill-session -t "${s}"`, { stdio: 'ignore' });
-          console.log(`[Terminal] Killed stale grouped session: ${s} (group: ${group})`);
+          console.log(`[Terminal] Killed stale grouped clone: ${s} (group: ${group})`);
         } catch {}
         continue;
       }
       const id = `term-${s.replace('cr-', '')}`;
       try {
-        // Directly attach to the existing session (no grouped session)
+        // Set window-size on the target session (overrides session-level 'manual' etc.)
+        try {
+          execSync(`${TMUX_PATH} set-option -t "${s}" window-size largest`, { stdio: 'ignore' });
+        } catch {}
+        // Use grouped session (new-session -t) for independent resize per client
+        const groupName = `cr-${Date.now()}`;
         const envNoTmux = { ...process.env, TERM: 'xterm-256color' } as Record<string, string>;
         delete envNoTmux.TMUX;
         const term = pty.spawn(TMUX_PATH, [
-          'attach-session', '-t', s,
+          'new-session', '-s', groupName, '-t', s,
+          ';', 'set', '-g', 'window-size', 'largest',
+          ';', 'set', '-g', 'aggressive-resize', 'on',
         ], {
           name: 'xterm-256color',
           cols: 80,
