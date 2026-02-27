@@ -34,6 +34,17 @@ const AI_CLIS = detectAiClis();
 class TerminalManager extends EventEmitter {
   private terminals = new Map<string, Terminal>();
 
+  constructor() {
+    super();
+    // Set tmux global defaults so all sessions (including ones created by copilot CLI) use largest
+    if (TMUX_PATH) {
+      try {
+        execSync(`${TMUX_PATH} set-option -g window-size largest`, { stdio: 'ignore' });
+        execSync(`${TMUX_PATH} set-option -g aggressive-resize on`, { stdio: 'ignore' });
+      } catch {}
+    }
+  }
+
   create(id: string, cwd?: string, aiCli?: string): Terminal {
     if (this.terminals.has(id)) {
       return this.terminals.get(id)!;
@@ -226,6 +237,16 @@ class TerminalManager extends EventEmitter {
   /** Re-adopt orphaned cr-* tmux sessions from a previous server run */
   reAdoptOrphanedSessions(): number {
     if (!TMUX_PATH) return 0;
+
+    // Force window-size largest on ALL existing tmux sessions
+    try {
+      const allSessions = execSync(`${TMUX_PATH} list-sessions -F "#{session_name}"`, { encoding: 'utf8' })
+        .trim().split('\n').filter(Boolean);
+      for (const s of allSessions) {
+        try { execSync(`${TMUX_PATH} set-option -t "${s}" window-size largest`, { stdio: 'ignore' }); } catch {}
+      }
+    } catch {}
+
     // Get session names and their groups
     let sessionInfo: { name: string; group: string }[] = [];
     try {
