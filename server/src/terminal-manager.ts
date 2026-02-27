@@ -36,15 +36,15 @@ class TerminalManager extends EventEmitter {
 
   constructor() {
     super();
-    // Set tmux global defaults and hooks so ALL sessions always use largest window-size
+    // Set tmux global defaults and hooks so ALL sessions use latest window-size
+    // 'latest' sizes the window to the most recently active client, so
+    // the web tile renders correctly when active, desktop is fine when active
     if (TMUX_PATH) {
       try {
-        execSync(`${TMUX_PATH} set-option -g window-size largest`, { stdio: 'ignore' });
+        execSync(`${TMUX_PATH} set-option -g window-size latest`, { stdio: 'ignore' });
         execSync(`${TMUX_PATH} set-option -g aggressive-resize on`, { stdio: 'ignore' });
-        // Install hooks to auto-set window-size largest on every new session and client attach
-        // This catches sessions created by copilot CLI or any other tool
-        execSync(`${TMUX_PATH} set-hook -g session-created 'set-option window-size largest'`, { stdio: 'ignore' });
-        execSync(`${TMUX_PATH} set-hook -g client-attached 'set-option window-size largest'`, { stdio: 'ignore' });
+        execSync(`${TMUX_PATH} set-hook -g session-created 'set-option window-size latest'`, { stdio: 'ignore' });
+        execSync(`${TMUX_PATH} set-hook -g client-attached 'set-option window-size latest'`, { stdio: 'ignore' });
       } catch {}
     }
   }
@@ -59,11 +59,11 @@ class TerminalManager extends EventEmitter {
 
     let term: pty.IPty;
     if (TMUX_PATH) {
-      // Spawn inside tmux with mouse, aggressive-resize, window-size largest (per-session)
+      // Spawn inside tmux with mouse, aggressive-resize, window-size latest (per-session)
       term = pty.spawn(TMUX_PATH, [
         'new-session', '-s', tmuxName, '-x', '80', '-y', '24',
         ';', 'set', 'mouse', 'on',
-        ';', 'set', 'window-size', 'largest',
+        ';', 'set', 'window-size', 'latest',
         ';', 'set', 'aggressive-resize', 'on',
       ], {
         name: 'xterm-256color',
@@ -119,37 +119,24 @@ class TerminalManager extends EventEmitter {
     if (this.terminals.has(id)) return this.terminals.get(id)!;
     if (!TMUX_PATH) throw new Error('tmux is not installed');
 
-    // Query the target session's window size so the web PTY starts at least that large
-    // This prevents the grouped session from shrinking shared windows (causing dots on desktop)
-    let cols = 200, rows = 60;
-    try {
-      const sizeStr = execSync(
-        `${TMUX_PATH} display-message -t "${tmuxSession}" -p "#{window_width} #{window_height}"`,
-        { encoding: 'utf8' }
-      ).trim();
-      const [ww, wh] = sizeStr.split(' ').map(Number);
-      if (ww > 0) cols = Math.max(cols, ww);
-      if (wh > 0) rows = Math.max(rows, wh);
-    } catch {}
-
     // Use new-session -t to create a grouped session that shares windows
-    // Must unset TMUX env to avoid "sessions should be nested with care" error
+    // window-size latest: tmux sizes the window to the most recently active client
+    // so the web tile gets proper rendering when active, desktop is fine when active
     const groupName = `cr-${id.replace('term-', '')}`;
     const envNoTmux = { ...process.env, TERM: 'xterm-256color' } as Record<string, string>;
     delete envNoTmux.TMUX;
-    // Set window-size on the TARGET session too (overrides any session-level setting like 'manual')
     try {
-      execSync(`${TMUX_PATH} set-option -t "${tmuxSession}" window-size largest`, { stdio: 'ignore' });
+      execSync(`${TMUX_PATH} set-option -t "${tmuxSession}" window-size latest`, { stdio: 'ignore' });
     } catch {}
     const term = pty.spawn(TMUX_PATH, [
       'new-session', '-s', groupName, '-t', tmuxSession,
       ';', 'set', 'mouse', 'on',
-      ';', 'set', 'window-size', 'largest',
+      ';', 'set', 'window-size', 'latest',
       ';', 'set', 'aggressive-resize', 'on',
     ], {
       name: 'xterm-256color',
-      cols,
-      rows,
+      cols: 80,
+      rows: 24,
       cwd: homedir(),
       env: envNoTmux,
     });
@@ -214,19 +201,6 @@ class TerminalManager extends EventEmitter {
   resize(id: string, cols: number, rows: number): boolean {
     const t = this.terminals.get(id);
     if (!t) return false;
-    // Clamp size: never resize smaller than the target session's window
-    // to avoid shrinking shared windows and causing dots on desktop terminals
-    if (TMUX_PATH && t.tmuxSession) {
-      try {
-        const sizeStr = execSync(
-          `${TMUX_PATH} display-message -t "${t.tmuxSession}" -p "#{window_width} #{window_height}"`,
-          { encoding: 'utf8' }
-        ).trim();
-        const [ww, wh] = sizeStr.split(' ').map(Number);
-        if (ww > 0) cols = Math.max(cols, ww);
-        if (wh > 0) rows = Math.max(rows, wh);
-      } catch {}
-    }
     t.pty.resize(cols, rows);
     return true;
   }
@@ -261,12 +235,12 @@ class TerminalManager extends EventEmitter {
   reAdoptOrphanedSessions(): number {
     if (!TMUX_PATH) return 0;
 
-    // Force window-size largest on ALL existing tmux sessions
+    // Force window-size latest on ALL existing tmux sessions
     try {
       const allSessions = execSync(`${TMUX_PATH} list-sessions -F "#{session_name}"`, { encoding: 'utf8' })
         .trim().split('\n').filter(Boolean);
       for (const s of allSessions) {
-        try { execSync(`${TMUX_PATH} set-option -t "${s}" window-size largest`, { stdio: 'ignore' }); } catch {}
+        try { execSync(`${TMUX_PATH} set-option -t "${s}" window-size latest`, { stdio: 'ignore' }); } catch {}
       }
     } catch {}
 
@@ -298,31 +272,19 @@ class TerminalManager extends EventEmitter {
       try {
         // Set window-size on the target session (overrides session-level 'manual' etc.)
         try {
-          execSync(`${TMUX_PATH} set-option -t "${s}" window-size largest`, { stdio: 'ignore' });
+          execSync(`${TMUX_PATH} set-option -t "${s}" window-size latest`, { stdio: 'ignore' });
         } catch {}
-        // Query target session's window size so the web PTY starts large enough
-        let cols = 200, rows = 60;
-        try {
-          const sizeStr = execSync(
-            `${TMUX_PATH} display-message -t "${s}" -p "#{window_width} #{window_height}"`,
-            { encoding: 'utf8' }
-          ).trim();
-          const [ww, wh] = sizeStr.split(' ').map(Number);
-          if (ww > 0) cols = Math.max(cols, ww);
-          if (wh > 0) rows = Math.max(rows, wh);
-        } catch {}
-        // Use grouped session (new-session -t) for independent resize per client
         const groupName = `cr-${Date.now()}`;
         const envNoTmux = { ...process.env, TERM: 'xterm-256color' } as Record<string, string>;
         delete envNoTmux.TMUX;
         const term = pty.spawn(TMUX_PATH, [
           'new-session', '-s', groupName, '-t', s,
-          ';', 'set', 'window-size', 'largest',
+          ';', 'set', 'window-size', 'latest',
           ';', 'set', 'aggressive-resize', 'on',
         ], {
           name: 'xterm-256color',
-          cols,
-          rows,
+          cols: 80,
+          rows: 24,
           cwd: homedir(),
           env: envNoTmux,
         });
