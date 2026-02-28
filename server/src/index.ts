@@ -426,8 +426,8 @@ app.get('/swarm', (_req, res) => {
   res.sendFile(path.join(DIST_DIR, 'swarm.html'));
 });
 
-// SPA fallback (must be last static route)
-app.get('*', (req, res, next) => {
+// SPA fallback (must be last static route — Express 5 uses {*path} syntax)
+app.get('{*path}', (req, res, next) => {
   // Skip API and WebSocket paths
   if (req.path.startsWith('/api') || req.path.startsWith('/ws') || req.path.startsWith('/swarm/api')) {
     next();
