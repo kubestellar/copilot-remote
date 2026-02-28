@@ -103,7 +103,7 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
         <Text sx={{ fontWeight: 'bold', fontSize: 1, color: 'fg.default', flex: 1 }}>Sessions</Text>
         <Button size="small" leadingVisual={SyncIcon} onClick={onRefresh} variant="invisible" aria-label="Refresh" />
-        <Button size="small" leadingVisual={PlusIcon} onClick={onNew} variant="primary">New</Button>
+        <Button size="small" leadingVisual={PlusIcon} onClick={onNew} variant="primary" aria-label="New session">New</Button>
       </Box>
 
       {loading && <Box sx={{ textAlign: 'center', py: 4 }}><Spinner size="small" /></Box>}
@@ -139,7 +139,7 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
                     sx={{ flex: 1, fontSize: 0, bg: 'canvas.default', color: 'fg.default' }}
                     autoFocus
                   />
-                  <Button size="small" variant="primary" onClick={() => handleSaveRename(session.id)} sx={{ fontSize: 0, py: 0, px: 2 }}>
+                  <Button size="small" variant="primary" onClick={() => handleSaveRename(session.id)} sx={{ fontSize: 0, py: 0, px: 2 }} aria-label="Save name">
                     Save
                   </Button>
                 </Box>
@@ -180,14 +180,14 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
                       sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', px: '5px', borderRadius: '8px', fontSize: '10px', fontWeight: 600, bg: style.bg, color: style.fg, lineHeight: '16px', flexShrink: 0 }}
                     >
                       {tag}
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'flex', opacity: 0.7 }}
-                        onClick={(e) => handleRemoveTag(e, session.id, tag)}
+                      <Box
+                        as="button"
+                        sx={{ bg: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', p: 0, display: 'flex', opacity: 0.7, ':hover': { opacity: 1 } }}
+                        onClick={(e: React.MouseEvent) => handleRemoveTag(e, session.id, tag)}
+                        aria-label={`Remove ${tag} tag`}
                       >
                         <XIcon size={8} />
-                      </span>
+                      </Box>
                     </Box>
                   );
                 })}
@@ -199,6 +199,7 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
                       onKeyDown={e => { if (e.key === 'Enter') handleAddTag(session.id); if (e.key === 'Escape') { setAddingTag(null); setNewTag(''); } }}
                       placeholder="tag"
                       autoFocus
+                      aria-label="New tag name"
                       style={{ width: 50, fontSize: 10, padding: '1px 4px', borderRadius: 4, border: '1px solid #444c56', background: '#161b22', color: '#e6edf3' }}
                     />
                   </Box>

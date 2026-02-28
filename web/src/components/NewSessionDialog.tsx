@@ -80,8 +80,8 @@ export function NewSessionDialog({ onClose, onCreated }: Props) {
         {error && <Text sx={{ color: 'danger.fg', fontSize: 1, mb: 2, display: 'block' }}>{error}</Text>}
 
         <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={handleCreate} disabled={creating}>
+          <Button onClick={onClose} aria-label="Cancel">Cancel</Button>
+          <Button variant="primary" onClick={handleCreate} disabled={creating} aria-label={creating ? 'Creating session' : 'Create Session'}>
             {creating ? 'Creating...' : 'Create Session'}
           </Button>
         </Box>

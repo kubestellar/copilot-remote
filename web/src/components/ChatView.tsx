@@ -123,6 +123,7 @@ export function ChatView({ session, messages, onSend, onResume, onBack }: Props)
             variant="primary"
             onClick={handleResume}
             disabled={resuming}
+            aria-label={resuming ? 'Resuming session' : 'Resume session'}
           >
             {resuming ? 'Resuming...' : 'Resume'}
           </Button>
@@ -183,6 +184,7 @@ export function ChatView({ session, messages, onSend, onResume, onBack }: Props)
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={placeholder}
+              aria-label="Message input"
               style={{
                 width: '100%',
                 background: 'transparent',

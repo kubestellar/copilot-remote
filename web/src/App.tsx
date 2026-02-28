@@ -291,6 +291,7 @@ function ConnectionSetup({ onComplete }: { onComplete: () => void }) {
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="Paste token here"
+            aria-label="Auth Token"
             style={{
               width: '100%', padding: '8px 12px', borderRadius: 6,
               border: '1px solid var(--borderColor-default, #30363d)',
@@ -306,6 +307,7 @@ function ConnectionSetup({ onComplete }: { onComplete: () => void }) {
             value={server}
             onChange={(e) => setServer(e.target.value)}
             placeholder="http://192.168.x.x:3001"
+            aria-label="Server URL"
             style={{
               width: '100%', padding: '8px 12px', borderRadius: 6,
               border: '1px solid var(--borderColor-default, #30363d)',
@@ -318,6 +320,7 @@ function ConnectionSetup({ onComplete }: { onComplete: () => void }) {
         <button
           onClick={handleSave}
           disabled={!token.trim()}
+          aria-label="Connect"
           style={{
             width: '100%', padding: '10px', borderRadius: 6,
             background: token.trim() ? '#238636' : '#21262d',
