@@ -8,6 +8,7 @@ import { acpManager } from './acp-manager.js';
 import { terminalManager } from './terminal-manager.js';
 import { listHistoricalSessions, getSessionDetail, getSessionMessages, purgeSession } from './session-store.js';
 import { getAllMeta, updateMeta, addTag, removeTag } from './session-meta.js';
+import { getTodos, setTodos } from './todo-store.js';
 import type { WsMessage, WsServerMessage } from './types.js';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -19,7 +20,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
   next();
 });
@@ -295,6 +296,21 @@ app.delete('/api/tmux-sessions/:name', (req, res) => {
   res.json({ killed });
 });
 
+// Todo queue REST endpoints
+app.get('/api/todos', (_req, res) => {
+  res.json(getTodos());
+});
+
+app.put('/api/todos', (req, res) => {
+  const { items, todoMode } = req.body;
+  if (!Array.isArray(items)) {
+    res.status(400).json({ error: 'items must be an array' });
+    return;
+  }
+  setTodos(items, !!todoMode);
+  res.json({ ok: true });
+});
+
 // Terminal WebSocket — separate path for raw PTY I/O
 const termWss = new WebSocketServer({ noServer: true });
 
@@ -354,10 +370,17 @@ termWss.on('connection', (ws, req) => {
       ws.send(JSON.stringify({ type: 'command', id, command: cmd }));
     }
   };
+  // Forward prompt detection (for todo dispatcher)
+  const onPrompt = (id: string) => {
+    if (id === termId && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'prompt', id: termId }));
+    }
+  };
 
   terminalManager.on('data', onData);
   terminalManager.on('exit', onExit);
   terminalManager.on('command', onCommand);
+  terminalManager.on('prompt', onPrompt);
 
   // WebSocket input → PTY
   ws.on('message', (raw) => {
@@ -366,6 +389,14 @@ termWss.on('connection', (ws, req) => {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
         terminalManager.resize(termId, parsed.cols, parsed.rows);
+        return;
+      }
+      if (parsed.type === 'watch-prompt') {
+        terminalManager.watchForPrompt(termId);
+        return;
+      }
+      if (parsed.type === 'unwatch-prompt') {
+        terminalManager.unwatchPrompt(termId);
         return;
       }
     } catch (_parseErr) {
@@ -378,6 +409,7 @@ termWss.on('connection', (ws, req) => {
     terminalManager.removeListener('data', onData);
     terminalManager.removeListener('exit', onExit);
     terminalManager.removeListener('command', onCommand);
+    terminalManager.removeListener('prompt', onPrompt);
   });
 });
 

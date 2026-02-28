@@ -3,7 +3,9 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Box, IconButton, Text, ActionMenu, ActionList } from '@primer/react';
-import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon } from '@primer/octicons-react';
+import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon, ListUnorderedIcon } from '@primer/octicons-react';
+import { useTodoDispatcher } from '../hooks/useTodoDispatcher';
+import TodoPanel from './TodoPanel';
 import '@xterm/xterm/css/xterm.css';
 
 /* Constrain xterm inside tile cells */
@@ -90,6 +92,7 @@ function uniqueName(baseName: string, existingNames: string[]): string {
 
 const CHECKED_TILES_KEY = 'copilot-remote-checked-tiles';
 const TILE_MODE_KEY = 'copilot-remote-tile-mode';
+const TODO_PANEL_KEY = 'copilot-remote-show-todo-panel';
 
 /** Load saved checked tmux session names */
 function loadCheckedSessions(): Set<string> {
@@ -136,6 +139,7 @@ export function TerminalView({ onBack }: Props) {
   const [focusedTileId, setFocusedTileId] = useState<string | null>(null);
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [showTodoPanel, setShowTodoPanel] = useState(() => localStorage.getItem(TODO_PANEL_KEY) === 'true');
   const singleContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const tileContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const intentRef = useRef<Map<string, string>>(new Map());
@@ -146,6 +150,18 @@ export function TerminalView({ onBack }: Props) {
   useEffect(() => {
     localStorage.setItem(TILE_MODE_KEY, String(tileMode));
   }, [tileMode]);
+
+  useEffect(() => {
+    localStorage.setItem(TODO_PANEL_KEY, String(showTodoPanel));
+  }, [showTodoPanel]);
+
+  // Getter for termInstances (passed to hook to avoid stale closure)
+  const getTermInstances = useCallback(() => termInstances, []);
+
+  // Todo dispatcher hook
+  const todoDispatcher = useTodoDispatcher(getTermInstances, tabs);
+  const todoDispatcherRef = useRef(todoDispatcher);
+  todoDispatcherRef.current = todoDispatcher;
 
   useEffect(() => {
     saveCheckedSessions(tabs);
@@ -209,6 +225,11 @@ export function TerminalView({ onBack }: Props) {
           (inst as any).processExited = true;
           return;
         }
+        if (parsed.type === 'prompt') {
+          // Shell prompt returned — notify todo dispatcher
+          todoDispatcherRef.current.onTilePromptReturned(tabId);
+          return;
+        }
       } catch (_parseErr) { /* raw terminal data */ }
       term.write(e.data);
     };
@@ -216,6 +237,9 @@ export function TerminalView({ onBack }: Props) {
     ws.onclose = () => {
       inst.connected = false;
       setTabs(prev => [...prev]);
+
+      // Notify todo dispatcher of disconnection
+      todoDispatcherRef.current.onTileDisconnected(tabId);
 
       // If the process exited (not just a connection drop), auto-remove the tab after a short delay
       if ((inst as any).processExited) {
@@ -775,6 +799,9 @@ export function TerminalView({ onBack }: Props) {
         e.preventDefault();
         if (aiClis.length > 0) addTab(aiClis[0].name);
         else addTab();
+      } else if (mod && e.shiftKey && e.key === 'D') {
+        e.preventDefault();
+        setShowTodoPanel(prev => !prev);
       }
     };
     window.addEventListener('keydown', handler);
@@ -895,6 +922,22 @@ export function TerminalView({ onBack }: Props) {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
           <button
             type="button"
+            aria-label={showTodoPanel ? 'Hide todo queue (⌘⇧D)' : 'Show todo queue (⌘⇧D)'}
+            title={showTodoPanel ? 'Hide todo queue (⌘⇧D)' : 'Show todo queue (⌘⇧D)'}
+            onClick={() => setShowTodoPanel(prev => !prev)}
+            style={{
+              flexShrink: 0,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
+              backgroundColor: showTodoPanel ? 'var(--bgColor-accent-emphasis, #316dca)' : 'transparent',
+              color: showTodoPanel ? 'var(--fgColor-onEmphasis, #fff)' : 'var(--fgColor-muted, #768390)',
+              border: 'none', padding: 0,
+            }}
+          >
+            <ListUnorderedIcon size={16} />
+          </button>
+          <button
+            type="button"
             aria-label={tileMode ? 'Single view (⌘T)' : 'Tile checked terminals (⌘T)'}
             title={tileMode ? 'Single view (⌘T)' : 'Tile checked terminals (⌘T)'}
             disabled={!hasChecked}
@@ -963,6 +1006,11 @@ export function TerminalView({ onBack }: Props) {
         {/* Spacer to balance centering */}
         <Box sx={{ flex: 1 }} />
       </Box>
+
+      {/* Main content: terminal + optional todo panel */}
+      <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
+      {/* Terminal column */}
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
 
       {/* Tmux info bar — always rendered with fixed height to prevent layout jitter */}
       {!tileMode && (
@@ -1064,6 +1112,25 @@ export function TerminalView({ onBack }: Props) {
           ))}
         </Box>
       )}
+
+      </Box>{/* end terminal column */}
+
+      {/* Todo queue panel */}
+      {showTodoPanel && (
+        <TodoPanel
+          items={todoDispatcher.items}
+          todoMode={todoDispatcher.todoMode}
+          tabs={tabs}
+          onAddItem={todoDispatcher.addItem}
+          onRemoveItem={todoDispatcher.removeItem}
+          onRetryItem={todoDispatcher.retryItem}
+          onToggleTodoMode={todoDispatcher.toggleTodoMode}
+          onClearCompleted={todoDispatcher.clearCompleted}
+          onReorderItem={todoDispatcher.reorderItem}
+        />
+      )}
+
+      </Box>{/* end main content flex */}
     </Box>
   );
 }

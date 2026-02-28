@@ -1,4 +1,4 @@
-import type { Session, ChatMessage } from '../types';
+import type { Session, ChatMessage, TodoItem } from '../types';
 
 const getBaseUrl = () => {
   const stored = localStorage.getItem('copilot-remote-server');
@@ -51,4 +51,10 @@ export const api = {
 
   removeTag: (id: string, tag: string) =>
     request<{ tags: string[] }>(`/api/sessions/${id}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }),
+
+  getTodos: () =>
+    request<{ items: TodoItem[]; todoMode: boolean }>('/api/todos'),
+
+  saveTodos: (items: TodoItem[], todoMode: boolean) =>
+    request<{ ok: boolean }>('/api/todos', { method: 'PUT', body: JSON.stringify({ items, todoMode }) }),
 };

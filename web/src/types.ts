@@ -18,6 +18,19 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export type TodoStatus = 'pending' | 'running' | 'done' | 'failed';
+
+export interface TodoItem {
+  id: string;
+  description: string;
+  status: TodoStatus;
+  assignedTileId: string | null;
+  assignedTileName: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
 export interface WsMessage {
   type: 'output' | 'status' | 'sessions' | 'message' | 'error' | 'stream' | 'tool' | 'turn_complete';
   sessionId?: string;

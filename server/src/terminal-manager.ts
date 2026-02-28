@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import * as pty from 'node-pty';
 import { homedir } from 'os';
 import { execSync } from 'child_process';
+import { PromptDetector } from './prompt-detector.js';
 
 interface Terminal {
   id: string;
@@ -33,9 +34,14 @@ const AI_CLIS = detectAiClis();
 
 class TerminalManager extends EventEmitter {
   private terminals = new Map<string, Terminal>();
+  private promptDetector = new PromptDetector();
 
   constructor() {
     super();
+    // Forward prompt events from the detector
+    this.promptDetector.on('prompt', (id: string) => {
+      this.emit('prompt', id);
+    });
     // Set tmux global defaults and hooks so ALL sessions use latest window-size
     // 'latest' sizes the window to the most recently active client, so
     // the web tile renders correctly when active, desktop is fine when active
@@ -103,10 +109,12 @@ class TerminalManager extends EventEmitter {
 
     term.onData((data) => {
       this.emit('data', id, data);
+      this.promptDetector.feed(id, data);
     });
 
     term.onExit(({ exitCode }) => {
       this.emit('exit', id, exitCode);
+      this.promptDetector.cleanup(id);
       this.terminals.delete(id);
     });
 
@@ -151,14 +159,28 @@ class TerminalManager extends EventEmitter {
       inputBuffer: '',
     };
 
-    term.onData((data) => this.emit('data', id, data));
+    term.onData((data) => {
+      this.emit('data', id, data);
+      this.promptDetector.feed(id, data);
+    });
     term.onExit(({ exitCode }) => {
       this.emit('exit', id, exitCode);
+      this.promptDetector.cleanup(id);
       this.terminals.delete(id);
     });
 
     this.terminals.set(id, terminal);
     return terminal;
+  }
+
+  /** Start watching a terminal for shell prompt return (used by todo dispatcher) */
+  watchForPrompt(id: string): void {
+    this.promptDetector.watchForPrompt(id);
+  }
+
+  /** Stop watching a terminal for prompt */
+  unwatchPrompt(id: string): void {
+    this.promptDetector.unwatchPrompt(id);
   }
 
   /** List tmux sessions available on the machine */
@@ -336,9 +358,13 @@ class TerminalManager extends EventEmitter {
           inputBuffer: '',
         };
 
-        term.onData((data) => this.emit('data', id, data));
+        term.onData((data) => {
+          this.emit('data', id, data);
+          this.promptDetector.feed(id, data);
+        });
         term.onExit(({ exitCode }) => {
           this.emit('exit', id, exitCode);
+          this.promptDetector.cleanup(id);
           this.terminals.delete(id);
         });
 
