@@ -872,26 +872,77 @@ jobs:
 
             // ── Deduplicate and create ──
 
-            // Get existing open auto-qa issues
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'auto-qa',
-              per_page: 100,
-            });
-            const existingTitles = new Set(existing.data.map(i => i.title));
+            if (checks.length === 0) {
+              core.info(`All checks passed (focus: ${focusArea}). No issues to create.`);
+              return;
+            }
+
+            core.info(`${checks.length} finding(s) to process (focus: ${focusArea}). Creating issues...`);
+
+            // Fetch both open AND recently closed issues to prevent duplicates
+            // after a fix PR is merged but before the next scan confirms the fix.
+            const CLOSED_LOOKBACK_DAYS = 7;
+            const [{ data: openIssues }, { data: closedIssues }] = await Promise.all([
+              github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: 'auto-qa',
+                per_page: 100,
+              }),
+              github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'closed',
+                labels: 'auto-qa',
+                per_page: 50,
+                sort: 'updated',
+                direction: 'desc',
+              }),
+            ]);
+
+            // Filter closed issues to only those closed within the lookback window
+            const lookbackMs = CLOSED_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+            const lookbackCutoff = new Date(Date.now() - lookbackMs);
+            const recentlyClosedIssues = closedIssues.filter(i => new Date(i.closed_at) > lookbackCutoff);
+            const existingIssues = [...openIssues, ...recentlyClosedIssues];
+
+            core.info(`Found ${openIssues.length} open + ${recentlyClosedIssues.length} recently closed auto-qa issues`);
+
+            // Extract the core issue pattern from a title by removing dynamic
+            // counts and numbers so that "5 swallowed errors" and "3 swallowed
+            // errors" are treated as the same finding.
+            const extractPattern = (title) => {
+              return title
+                .replace(/\[Auto-QA\]\s*/, '')                                  // Remove prefix
+                .replace(/\d+\s*(critical|high|TODO|FIXME|HACK)/gi, '$1')       // Remove counts before keywords
+                .replace(/\d+/g, 'N')                                           // Replace remaining numbers with N
+                .toLowerCase()
+                .trim();
+            };
 
             let created = 0;
             for (const check of checks) {
               if (created >= maxIssues) {
-                core.info(`Hit max issues (${maxIssues}), skipping: ${check.title}`);
+                core.warning(`Rate limit reached (${maxIssues} issues). Remaining findings skipped.`);
                 break;
               }
-              if (existingTitles.has(check.title)) {
-                core.info(`Skipping duplicate: ${check.title}`);
+
+              // Check for duplicates using pattern matching (handles varying counts in titles)
+              const checkPattern = extractPattern(check.title);
+              const duplicate = existingIssues.find(i => {
+                const existingPattern = extractPattern(i.title);
+                return existingPattern === checkPattern;
+              });
+
+              if (duplicate) {
+                const status = duplicate.state === 'open'
+                  ? 'still open'
+                  : `closed ${new Date(duplicate.closed_at).toLocaleDateString()}`;
+                core.info(`Skipping duplicate: "${check.title}" matches #${duplicate.number} (${status})`);
                 continue;
               }
+
               try {
                 const issue = await github.rest.issues.create({
                   owner: context.repo.owner,
