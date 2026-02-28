@@ -71,8 +71,8 @@ export function ChatView({ session, messages, onSend, onResume, onBack }: Props)
   const handleKill = useCallback(async () => {
     try {
       await api.killSession(session.id);
-    } catch {
-      // Ignore
+    } catch (err) {
+      console.error('[ChatView] Failed to kill session:', err);
     }
   }, [session.id]);
 

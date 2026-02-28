@@ -39,7 +39,7 @@ class SessionManager extends EventEmitter {
     // Kill existing managed process if any
     const existing = this.sessions.get(id);
     if (existing?.proc) {
-      try { existing.proc.kill(); } catch {}
+      try { existing.proc.kill(); } catch (killErr) { console.debug('[Session] Failed to kill existing process:', killErr); }
       existing.proc = null;
     }
 

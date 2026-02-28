@@ -183,7 +183,7 @@ export function TerminalView({ onBack }: Props) {
     term.element?.addEventListener('contextmenu', (e) => e.preventDefault());
     // Fit after layout is computed: rAF ensures DOM layout, then fit
     requestAnimationFrame(() => {
-      try { fitAddon.fit(); } catch {}
+      try { fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
     });
 
     const ws = new WebSocket(`${wsUrl}/ws/terminal?token=${token}&id=${tabId}`);
@@ -209,7 +209,7 @@ export function TerminalView({ onBack }: Props) {
           (inst as any).processExited = true;
           return;
         }
-      } catch { /* raw terminal data */ }
+      } catch (_parseErr) { /* raw terminal data */ }
       term.write(e.data);
     };
 
@@ -291,7 +291,8 @@ export function TerminalView({ onBack }: Props) {
 
       // Create fresh connection with new ID
       createTermConnection(newId, container);
-    } catch {
+    } catch (err) {
+      console.error('[TerminalView] Re-attach failed:', err);
       // Re-attach failed — schedule another retry if under limit
       if (inst && inst.reconnectAttempts < 5) {
         const delay = Math.min(2000 * Math.pow(1.5, inst.reconnectAttempts), 15000);
@@ -607,7 +608,7 @@ export function TerminalView({ onBack }: Props) {
     const inst = termInstances.get(activeTabId);
     if (inst && inst.term.element?.parentElement === container) {
       // Already mounted in correct container — fit to fill viewport then focus
-      try { inst.fitAddon.fit(); } catch {}
+      try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
       inst.term.focus();
       return;
     }
@@ -623,7 +624,7 @@ export function TerminalView({ onBack }: Props) {
       inst.container = container;
       // Force full redraw after reparenting (element was in detached tile container)
       setTimeout(() => {
-        try { inst.fitAddon.fit(); } catch {}
+        try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
         inst.term.refresh(0, inst.term.rows - 1);
       }, 50);
       inst.term.focus();
@@ -634,7 +635,7 @@ export function TerminalView({ onBack }: Props) {
   useEffect(() => {
     const handleResize = () => {
       for (const [, inst] of termInstances) {
-        try { inst.fitAddon.fit(); } catch {}
+        try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
       }
     };
     window.addEventListener('resize', handleResize);
@@ -696,7 +697,7 @@ export function TerminalView({ onBack }: Props) {
         for (const [, inst] of termInstances) {
           if (inst.term.options.fontSize !== 14) {
             inst.term.options.fontSize = 14;
-            try { inst.fitAddon.fit(); } catch {}
+            try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
           }
         }
       }
@@ -726,6 +727,7 @@ export function TerminalView({ onBack }: Props) {
             inst.term.open(el);
           }
           inst.container = el;
+          try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
         } else {
           createTermConnection(tab.id, el, tileFontSize);
         }

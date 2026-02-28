@@ -43,7 +43,7 @@ export function listHistoricalSessions(): Session[] {
           const eventsStat = statSync(eventsPath);
           isActive = (now - eventsStat.mtimeMs) < ACTIVE_THRESHOLD_MS;
           lastInteraction = eventsStat.mtime.toISOString();
-        } catch { /* no events file */ }
+        } catch (_err) { /* no events file */ }
 
         sessions.push({
           id: data.id || entry.name,
@@ -53,12 +53,12 @@ export function listHistoricalSessions(): Session[] {
           createdAt: data.created_at || stat.birthtime.toISOString(),
           updatedAt: lastInteraction || data.updated_at || stat.mtime.toISOString(),
         });
-      } catch {
-        // Skip malformed session directories
+      } catch (err) {
+        console.debug('[Store] Skipping malformed session directory:', err);
       }
     }
-  } catch {
-    // Session state dir unreadable
+  } catch (err) {
+    console.debug('[Store] Session state dir unreadable:', err);
   }
 
   // Sort by most recent first
@@ -85,7 +85,8 @@ export function getSessionDetail(sessionId: string): Session | null {
       createdAt: data.created_at || stat.birthtime.toISOString(),
       updatedAt: data.updated_at || stat.mtime.toISOString(),
     };
-  } catch {
+  } catch (err) {
+    console.debug('[Store] Failed to read session detail:', err);
     return null;
   }
 }
@@ -123,12 +124,12 @@ export function getSessionMessages(sessionId: string): ChatMessage[] {
             });
           }
         }
-      } catch {
-        // Skip malformed lines
+      } catch (err) {
+        console.debug('[Store] Skipping malformed event line:', err);
       }
     }
-  } catch {
-    // Events file unreadable
+  } catch (err) {
+    console.debug('[Store] Events file unreadable:', err);
   }
 
   return messages;

@@ -36,8 +36,8 @@ export function useWebSocket(onMessage: MessageHandler) {
       try {
         const msg: WsMessage = JSON.parse(event.data);
         handlersRef.current(msg);
-      } catch {
-        // Ignore malformed
+      } catch (err) {
+        console.debug('[WebSocket] Malformed message ignored:', err);
       }
     };
 

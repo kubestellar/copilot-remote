@@ -14,7 +14,7 @@ type MessageCallback = (sessionId: string, message: ChatMessage) => void;
 function parseEvent(line: string): { type: string; data: any; id?: string; timestamp?: string } | null {
   try {
     return JSON.parse(line);
-  } catch {
+  } catch (_err) {
     return null;
   }
 }
@@ -35,7 +35,8 @@ function readNewBytes(eventsPath: string): string | null {
     }
     fileOffsets.set(eventsPath, stat.size);
     return buf.toString('utf-8');
-  } catch {
+  } catch (err) {
+    console.debug('[Watcher] Failed to read new bytes from', eventsPath, ':', err);
     return null;
   }
 }
@@ -72,8 +73,8 @@ function initOffset(eventsPath: string) {
   try {
     const stat = statSync(eventsPath);
     fileOffsets.set(eventsPath, stat.size);
-  } catch {
-    // Ignore
+  } catch (err) {
+    console.debug('[Watcher] Failed to initialize offset for', eventsPath, ':', err);
   }
 }
 
@@ -91,8 +92,8 @@ export function watchSessionEvents(callback: MessageCallback) {
         }
       }
     }
-  } catch {
-    // Ignore
+  } catch (err) {
+    console.debug('[Watcher] Failed to read session state directory during init:', err);
   }
 
   // Poll all sessions for changes
@@ -112,8 +113,8 @@ export function watchSessionEvents(callback: MessageCallback) {
 
         processNewLines(entry.name, eventsPath, callback);
       }
-    } catch {
-      // Ignore polling errors
+    } catch (err) {
+      console.debug('[Watcher] Polling error:', err);
     }
   }, POLL_INTERVAL_MS);
 

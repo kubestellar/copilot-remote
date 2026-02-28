@@ -120,7 +120,8 @@ app.post('/api/sessions/:id/send', async (req, res) => {
   try {
     await acpManager.sendPrompt(req.params.id, text);
     res.json({ sent: true, via: 'acp' });
-  } catch {
+  } catch (acpErr) {
+    console.debug(`[API] ACP send failed, falling back to PTY: ${(acpErr as any).message}`);
     const sent = sessionManager.sendInput(req.params.id, text);
     if (!sent) { res.status(404).json({ error: 'Session not running' }); return; }
     res.json({ sent: true, via: 'pty' });
@@ -175,8 +176,8 @@ wss.on('connection', (ws, req) => {
           break;
 
       }
-    } catch {
-      // Ignore malformed messages
+    } catch (parseErr) {
+      console.debug('[WS] Malformed message ignored:', parseErr);
     }
   });
 
@@ -367,7 +368,7 @@ termWss.on('connection', (ws, req) => {
         terminalManager.resize(termId, parsed.cols, parsed.rows);
         return;
       }
-    } catch {
+    } catch (_parseErr) {
       // Not JSON — raw terminal input
     }
     terminalManager.write(termId, msg);

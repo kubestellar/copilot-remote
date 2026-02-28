@@ -14,7 +14,7 @@ interface Terminal {
 }
 
 const TMUX_PATH = (() => {
-  try { return execSync('which tmux', { encoding: 'utf8' }).trim(); } catch { return null; }
+  try { return execSync('which tmux', { encoding: 'utf8' }).trim(); } catch (_err) { return null; }
 })();
 
 /** Detect available AI CLI tools */
@@ -24,7 +24,7 @@ function detectAiClis(): { name: string; path: string }[] {
     try {
       const p = execSync(`which ${name}`, { encoding: 'utf8' }).trim();
       if (p) clis.push({ name, path: p });
-    } catch { /* not installed */ }
+    } catch (_err) { /* not installed */ }
   }
   return clis;
 }
@@ -167,7 +167,8 @@ class TerminalManager extends EventEmitter {
     try {
       const out = execSync(`${TMUX_PATH} list-sessions -F "#{session_name}"`, { encoding: 'utf8' });
       return out.trim().split('\n').filter(Boolean);
-    } catch {
+    } catch (err) {
+      console.debug('[Terminal] Failed to list tmux sessions:', err);
       return [];
     }
   }
@@ -215,6 +216,12 @@ class TerminalManager extends EventEmitter {
     const t = this.terminals.get(id);
     if (!t) return false;
     t.pty.resize(cols, rows);
+    // Also force tmux to resize its window to match
+    if (TMUX_PATH && t.tmuxSession) {
+      try {
+        execSync(`${TMUX_PATH} resize-window -t ${t.tmuxSession} -x ${cols} -y ${rows}`, { stdio: 'ignore' });
+      } catch (_err) { /* session may not exist or resize not needed */ }
+    }
     return true;
   }
 
