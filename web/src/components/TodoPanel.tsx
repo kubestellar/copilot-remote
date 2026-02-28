@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Box, Text } from '@primer/react';
-import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from '@primer/octicons-react';
+import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon, StopIcon } from '@primer/octicons-react';
 import type { TodoItem } from '../types';
 
 /** Default width of the todo panel in pixels */
@@ -21,6 +21,18 @@ const TODO_PANEL_WIDTH_KEY = 'copilot-remote-todo-panel-width';
 /** Maximum characters allowed in the todo input */
 const TODO_INPUT_MAX_LENGTH = 500;
 
+/** Interval (ms) to update countdown timers in the UI */
+const COUNTDOWN_REFRESH_INTERVAL_MS = 1000;
+
+/** Preset interval options for recurring items */
+const RECURRING_PRESETS = [
+  { label: '1m', ms: 60_000 },
+  { label: '5m', ms: 300_000 },
+  { label: '15m', ms: 900_000 },
+  { label: '30m', ms: 1_800_000 },
+  { label: '1h', ms: 3_600_000 },
+] as const;
+
 /** Status dot colors mapped to Primer-compatible values */
 const STATUS_COLORS: Record<TodoItem['status'], string> = {
   pending: '#6e7681',   // gray — waiting
@@ -37,6 +49,27 @@ const STATUS_LABELS: Record<TodoItem['status'], string> = {
   failed: 'Failed',
 };
 
+/** Format a millisecond duration as a human-readable countdown */
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return 'now';
+  const totalSec = Math.ceil(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min > 0) return `${min}m ${sec}s`;
+  return `${sec}s`;
+}
+
+/** Format interval preset label from milliseconds */
+function formatIntervalLabel(ms: number): string {
+  const preset = RECURRING_PRESETS.find(p => p.ms === ms);
+  if (preset) return preset.label;
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m`;
+  return `${Math.round(min / 60)}h`;
+}
+
 interface TermTab {
   id: string;
   name: string;
@@ -46,9 +79,10 @@ interface TodoPanelProps {
   items: TodoItem[];
   todoMode: boolean;
   tabs: TermTab[];
-  onAddItem: (description: string) => void;
+  onAddItem: (description: string, options?: { recurring?: boolean; intervalMs?: number; maxRuns?: number }) => void;
   onRemoveItem: (id: string) => void;
   onRetryItem: (id: string) => void;
+  onStopRecurring: (id: string) => void;
   onToggleTodoMode: () => void;
   onClearCompleted: () => void;
   onReorderItem: (id: string, direction: 'up' | 'down') => void;
@@ -61,12 +95,20 @@ export default function TodoPanel({
   onAddItem,
   onRemoveItem,
   onRetryItem,
+  onStopRecurring,
   onToggleTodoMode,
   onClearCompleted,
   onReorderItem,
 }: TodoPanelProps) {
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Recurring mode state for the input area
+  const [recurringEnabled, setRecurringEnabled] = useState(false);
+  const [selectedInterval, setSelectedInterval] = useState<number>(RECURRING_PRESETS[1].ms); // default: 5m
+
+  // Tick counter for countdown refresh
+  const [, setTick] = useState(0);
 
   // Resizable width state — persisted to localStorage
   const [panelWidth, setPanelWidth] = useState(() => {
@@ -94,7 +136,6 @@ export default function TodoPanel({
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!dragStartRef.current) return;
-      // Dragging left edge: moving mouse left = wider panel
       const delta = dragStartRef.current.startX - e.clientX;
       const newWidth = Math.max(TODO_PANEL_MIN_WIDTH_PX, Math.min(TODO_PANEL_MAX_WIDTH_PX, dragStartRef.current.startWidth + delta));
       setPanelWidth(newWidth);
@@ -113,6 +154,14 @@ export default function TodoPanel({
     };
   }, [isDragging]);
 
+  // Refresh countdown display every second when there are scheduled items
+  const hasScheduledItems = items.some(i => i.status === 'pending' && i.nextRunAt);
+  useEffect(() => {
+    if (!hasScheduledItems) return;
+    const interval = setInterval(() => setTick(t => t + 1), COUNTDOWN_REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [hasScheduledItems]);
+
   const pendingCount = items.filter(i => i.status === 'pending').length;
   const runningCount = items.filter(i => i.status === 'running').length;
   const doneCount = items.filter(i => i.status === 'done').length;
@@ -121,10 +170,14 @@ export default function TodoPanel({
   const handleSubmit = useCallback(() => {
     const trimmed = inputValue.trim();
     if (!trimmed) return;
-    onAddItem(trimmed);
+    onAddItem(trimmed, recurringEnabled ? {
+      recurring: true,
+      intervalMs: selectedInterval,
+      maxRuns: 0, // unlimited by default
+    } : undefined);
     setInputValue('');
     inputRef.current?.focus();
-  }, [inputValue, onAddItem]);
+  }, [inputValue, onAddItem, recurringEnabled, selectedInterval]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -152,7 +205,6 @@ export default function TodoPanel({
         bg: 'canvas.default',
         overflow: 'hidden',
         position: 'relative',
-        // Disable text selection while dragging to avoid annoying highlights
         userSelect: isDragging ? 'none' : 'auto',
       }}
     >
@@ -210,14 +262,14 @@ export default function TodoPanel({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '2px 8px',
+            padding: '2px 10px',
             borderRadius: 10,
-            border: 'none',
-            fontSize: 10,
+            border: todoMode ? 'none' : '1px solid #6e7681',
+            fontSize: 11,
             fontWeight: 600,
             cursor: 'pointer',
-            background: todoMode ? '#238636' : '#30363d',
-            color: todoMode ? '#ffffff' : '#8b949e',
+            background: todoMode ? '#238636' : '#484f58',
+            color: todoMode ? '#ffffff' : '#e6edf3',
             transition: 'background 0.15s',
           }}
         >
@@ -227,28 +279,79 @@ export default function TodoPanel({
 
       {/* Input */}
       <Box sx={{ px: 2, py: 2, borderBottom: '1px solid', borderColor: 'border.muted', flexShrink: 0 }}>
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder="Add command..."
-          value={inputValue}
-          onChange={e => setInputValue(e.target.value.slice(0, TODO_INPUT_MAX_LENGTH))}
-          onKeyDown={handleKeyDown}
-          style={{
-            width: '100%',
-            padding: '6px 8px',
-            borderRadius: 6,
-            border: '1px solid var(--borderColor-default, #30363d)',
-            background: 'var(--bgColor-default, #0d1117)',
-            color: 'var(--fgColor-default, #e6edf3)',
-            fontSize: 12,
-            fontFamily: 'monospace',
-            outline: 'none',
-            boxSizing: 'border-box',
-          }}
-        />
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Add command..."
+            value={inputValue}
+            onChange={e => setInputValue(e.target.value.slice(0, TODO_INPUT_MAX_LENGTH))}
+            onKeyDown={handleKeyDown}
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              borderRadius: 6,
+              border: '1px solid var(--borderColor-default, #30363d)',
+              background: 'var(--bgColor-default, #0d1117)',
+              color: 'var(--fgColor-default, #e6edf3)',
+              fontSize: 12,
+              fontFamily: 'monospace',
+              outline: 'none',
+              boxSizing: 'border-box',
+              minWidth: 0,
+            }}
+          />
+          {/* Recurring toggle */}
+          <button
+            type="button"
+            onClick={() => setRecurringEnabled(prev => !prev)}
+            title={recurringEnabled ? 'Disable recurring' : 'Enable recurring'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              border: recurringEnabled ? 'none' : '1px solid var(--borderColor-default, #30363d)',
+              background: recurringEnabled ? '#1f6feb' : 'transparent',
+              color: recurringEnabled ? '#ffffff' : 'var(--fgColor-muted, #8b949e)',
+              cursor: 'pointer',
+              fontSize: 14,
+              flexShrink: 0,
+              transition: 'background 0.15s',
+            }}
+          >
+            ↻
+          </button>
+        </Box>
+        {/* Recurring interval picker — shown when recurring is toggled ON */}
+        {recurringEnabled && (
+          <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Text sx={{ fontSize: '10px', color: 'fg.muted' }}>Every:</Text>
+            {RECURRING_PRESETS.map(preset => (
+              <button
+                key={preset.ms}
+                type="button"
+                onClick={() => setSelectedInterval(preset.ms)}
+                onKeyDown={e => e.stopPropagation()}
+                style={{
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                  border: selectedInterval === preset.ms ? 'none' : '1px solid var(--borderColor-default, #30363d)',
+                  background: selectedInterval === preset.ms ? '#1f6feb' : 'transparent',
+                  color: selectedInterval === preset.ms ? '#ffffff' : 'var(--fgColor-muted, #8b949e)',
+                  fontSize: 10,
+                  cursor: 'pointer',
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </Box>
+        )}
         <Text sx={{ fontSize: '10px', color: 'fg.muted', mt: 1, display: 'block' }}>
-          Press Enter to add
+          Press Enter to add{recurringEnabled ? ` (↻ every ${formatIntervalLabel(selectedInterval)})` : ''}
         </Text>
       </Box>
 
@@ -276,18 +379,22 @@ export default function TodoPanel({
                 ':hover': { bg: 'canvas.subtle' },
               }}
             >
-              {/* Status dot */}
-              <span
-                title={STATUS_LABELS[item.status]}
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: STATUS_COLORS[item.status],
-                  flexShrink: 0,
-                  marginTop: 4,
-                }}
-              />
+              {/* Status dot + recurring indicator */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0, mt: '3px' }}>
+                {item.recurring && (
+                  <span style={{ fontSize: 10, color: '#1f6feb', lineHeight: 1 }} title="Recurring">↻</span>
+                )}
+                <span
+                  title={STATUS_LABELS[item.status]}
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: STATUS_COLORS[item.status],
+                    flexShrink: 0,
+                  }}
+                />
+              </Box>
 
               {/* Content */}
               <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -295,8 +402,8 @@ export default function TodoPanel({
                   sx={{
                     fontSize: '11px',
                     fontFamily: 'mono',
-                    color: item.status === 'done' ? 'fg.muted' : 'fg.default',
-                    textDecoration: item.status === 'done' ? 'line-through' : 'none',
+                    color: item.status === 'done' && !item.recurring ? 'fg.muted' : 'fg.default',
+                    textDecoration: item.status === 'done' && !item.recurring ? 'line-through' : 'none',
                     wordBreak: 'break-all',
                     display: 'block',
                   }}
@@ -313,11 +420,21 @@ export default function TodoPanel({
                     Failed
                   </Text>
                 )}
+                {/* Recurring info line */}
+                {item.recurring && (
+                  <Text sx={{ fontSize: '9px', color: '#1f6feb', mt: '2px', display: 'block' }}>
+                    ↻ {(item.runCount ?? 0)}/{item.maxRuns === 0 ? '∞' : item.maxRuns}
+                    {item.intervalMs ? ` · every ${formatIntervalLabel(item.intervalMs)}` : ''}
+                    {item.status === 'pending' && item.nextRunAt && (
+                      <> · next: {formatCountdown(new Date(item.nextRunAt).getTime() - Date.now())}</>
+                    )}
+                  </Text>
+                )}
               </Box>
 
               {/* Actions */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}>
-                {item.status === 'pending' && (
+                {item.status === 'pending' && !item.nextRunAt && (
                   <>
                     <ActionButton
                       title="Move up"
@@ -335,9 +452,14 @@ export default function TodoPanel({
                     </ActionButton>
                   </>
                 )}
-                {item.status === 'failed' && (
-                  <ActionButton title="Retry" onClick={() => onRetryItem(item.id)}>
+                {(item.status === 'failed' || item.status === 'done') && (
+                  <ActionButton title="Re-run" onClick={() => onRetryItem(item.id)}>
                     <SyncIcon size={10} />
+                  </ActionButton>
+                )}
+                {item.recurring && (
+                  <ActionButton title="Stop recurring" onClick={() => onStopRecurring(item.id)}>
+                    <StopIcon size={10} />
                   </ActionButton>
                 )}
                 {item.status !== 'running' && (

@@ -11,6 +11,12 @@ const TODO_MODE_KEY = 'copilot-remote-todo-mode';
 /** Debounce interval (ms) for syncing state to the server */
 const TODO_SERVER_SYNC_DEBOUNCE_MS = 2000;
 
+/** Interval (ms) for checking if scheduled recurring items are ready to dispatch */
+const RECURRING_CHECK_INTERVAL_MS = 15_000;
+
+/** Interval (ms) for polling server to pick up items added via swarm API */
+const SERVER_POLL_INTERVAL_MS = 5_000;
+
 /** Generate a unique todo item ID */
 function generateTodoId(): string {
   return `todo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -42,9 +48,10 @@ interface TermTab {
 export interface TodoDispatcher {
   items: TodoItem[];
   todoMode: boolean;
-  addItem: (description: string) => void;
+  addItem: (description: string, options?: { recurring?: boolean; intervalMs?: number; maxRuns?: number }) => void;
   removeItem: (id: string) => void;
   retryItem: (id: string) => void;
+  stopRecurring: (id: string) => void;
   toggleTodoMode: () => void;
   clearCompleted: () => void;
   reorderItem: (id: string, direction: 'up' | 'down') => void;
@@ -98,6 +105,21 @@ export function useTodoDispatcher(
     }).catch(() => { /* server may be unreachable */ });
   }, []);
 
+  // Poll server for items added via swarm API
+  useEffect(() => {
+    const interval = setInterval(() => {
+      api.getTodos().then(({ items: serverItems }) => {
+        setItems(prev => {
+          const localIds = new Set(prev.map(i => i.id));
+          const newItems = (serverItems || []).filter(i => !localIds.has(i.id));
+          if (newItems.length === 0) return prev;
+          return [...prev, ...newItems];
+        });
+      }).catch(() => { /* server may be unreachable */ });
+    }, SERVER_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, []);
+
   /** Dispatch a todo item to a specific tile */
   const dispatchToTile = useCallback((item: TodoItem, tileId: string) => {
     const termInstances = getTermInstances();
@@ -106,11 +128,12 @@ export function useTodoDispatcher(
 
     const tab = tabsRef.current.find(t => t.id === tileId);
 
+    // Start watching for prompt return BEFORE sending the command so the
+    // server is already listening when fast commands complete immediately.
+    inst.ws.send(JSON.stringify({ type: 'watch-prompt' }));
+
     // Send the command to the terminal
     inst.ws.send(item.description + '\r');
-
-    // Tell the server to start watching for prompt return
-    inst.ws.send(JSON.stringify({ type: 'watch-prompt' }));
 
     // Update item state
     setItems(prev => prev.map(i =>
@@ -147,7 +170,11 @@ export function useTodoDispatcher(
   const tryDispatchNext = useCallback(() => {
     if (!todoModeRef.current) return;
 
-    const nextPending = itemsRef.current.find(i => i.status === 'pending');
+    const now = Date.now();
+    // Find next pending item that is ready to dispatch (not scheduled for the future)
+    const nextPending = itemsRef.current.find(i =>
+      i.status === 'pending' && (!i.nextRunAt || new Date(i.nextRunAt).getTime() <= now)
+    );
     if (!nextPending) return;
 
     const idleTile = findIdleTile();
@@ -156,7 +183,26 @@ export function useTodoDispatcher(
     dispatchToTile(nextPending, idleTile);
   }, [findIdleTile, dispatchToTile]);
 
-  const addItem = useCallback((description: string) => {
+  // Timer to check if scheduled recurring items are ready to dispatch
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!todoModeRef.current) return;
+
+      const now = Date.now();
+      const hasReady = itemsRef.current.some(
+        i => i.status === 'pending' && i.nextRunAt && new Date(i.nextRunAt).getTime() <= now
+      );
+      if (hasReady) {
+        tryDispatchNext();
+      }
+    }, RECURRING_CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [tryDispatchNext]);
+
+  const addItem = useCallback((
+    description: string,
+    options?: { recurring?: boolean; intervalMs?: number; maxRuns?: number },
+  ) => {
     const trimmed = description.trim();
     if (!trimmed) return;
 
@@ -169,6 +215,11 @@ export function useTodoDispatcher(
       createdAt: new Date().toISOString(),
       startedAt: null,
       completedAt: null,
+      recurring: options?.recurring ?? false,
+      intervalMs: options?.intervalMs,
+      runCount: 0,
+      maxRuns: options?.maxRuns ?? 0,
+      nextRunAt: null,
     };
 
     setItems(prev => {
@@ -186,11 +237,20 @@ export function useTodoDispatcher(
   const retryItem = useCallback((id: string) => {
     setItems(prev => prev.map(i =>
       i.id === id
-        ? { ...i, status: 'pending' as const, assignedTileId: null, assignedTileName: null, startedAt: null, completedAt: null }
+        ? { ...i, status: 'pending' as const, assignedTileId: null, assignedTileName: null, startedAt: null, completedAt: null, nextRunAt: null }
         : i
     ));
     setTimeout(() => tryDispatchNext(), 0);
   }, [tryDispatchNext]);
+
+  /** Stop recurring for an item (it becomes a one-shot done item) */
+  const stopRecurring = useCallback((id: string) => {
+    setItems(prev => prev.map(i =>
+      i.id === id
+        ? { ...i, recurring: false, nextRunAt: null }
+        : i
+    ));
+  }, []);
 
   const toggleTodoMode = useCallback(() => {
     setTodoMode(prev => {
@@ -204,7 +264,7 @@ export function useTodoDispatcher(
   }, [tryDispatchNext]);
 
   const clearCompleted = useCallback(() => {
-    setItems(prev => prev.filter(i => i.status !== 'done'));
+    setItems(prev => prev.filter(i => i.status !== 'done' || i.recurring));
   }, []);
 
   const reorderItem = useCallback((id: string, direction: 'up' | 'down') => {
@@ -224,13 +284,39 @@ export function useTodoDispatcher(
   const onTilePromptReturned = useCallback((tileId: string) => {
     // Find the running item assigned to this tile and mark done
     setItems(prev => {
-      const updated = prev.map(i =>
-        i.status === 'running' && i.assignedTileId === tileId
-          ? { ...i, status: 'done' as const, completedAt: new Date().toISOString() }
-          : i
-      );
+      const updated = prev.map(i => {
+        if (i.status !== 'running' || i.assignedTileId !== tileId) return i;
 
-      // After marking done, try dispatching next pending item
+        const newRunCount = (i.runCount ?? 0) + 1;
+
+        // Recurring item: check if it should repeat
+        if (i.recurring && (i.maxRuns === 0 || newRunCount < (i.maxRuns ?? 0))) {
+          const nextRunAt = i.intervalMs
+            ? new Date(Date.now() + i.intervalMs).toISOString()
+            : null;
+          return {
+            ...i,
+            status: 'pending' as const,
+            assignedTileId: null,
+            assignedTileName: null,
+            startedAt: null,
+            completedAt: new Date().toISOString(),
+            runCount: newRunCount,
+            nextRunAt,
+          };
+        }
+
+        // Non-recurring or max runs reached: mark done
+        return {
+          ...i,
+          status: 'done' as const,
+          completedAt: new Date().toISOString(),
+          runCount: newRunCount,
+          recurring: i.recurring && newRunCount >= (i.maxRuns ?? 0) ? false : i.recurring,
+        };
+      });
+
+      // After marking done/re-pending, try dispatching next pending item
       if (todoModeRef.current) {
         setTimeout(() => tryDispatchNext(), 0);
       }
@@ -253,6 +339,7 @@ export function useTodoDispatcher(
     addItem,
     removeItem,
     retryItem,
+    stopRecurring,
     toggleTodoMode,
     clearCompleted,
     reorderItem,

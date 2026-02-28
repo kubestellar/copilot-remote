@@ -844,7 +844,7 @@ export function TerminalView({ onBack }: Props) {
                   ':hover': { bg: 'canvas.default' },
                   maxWidth: 500, minWidth: 150, flexShrink: 0,
                 }}
-                onClick={() => { if (tileMode) { setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } else { setActiveTabId(tab.id); } }}
+                onClick={() => { setActiveTabId(tab.id); if (tileMode) { setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } }}
               >
                 <input
                   type="checkbox"
@@ -854,7 +854,7 @@ export function TerminalView({ onBack }: Props) {
                   style={{ margin: 0, cursor: 'pointer' }}
                 />
                 <Box
-                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); if (tileMode) { setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } else { setActiveTabId(tab.id); } }}
+                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); setActiveTabId(tab.id); if (tileMode) { setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } }}
                   onDoubleClick={(e: React.MouseEvent) => { e.stopPropagation(); setRenamingTabId(tab.id); setRenameValue(tab.name); }}
                   sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, overflow: 'hidden' }}
                 >
@@ -1155,6 +1155,7 @@ export function TerminalView({ onBack }: Props) {
           onAddItem={todoDispatcher.addItem}
           onRemoveItem={todoDispatcher.removeItem}
           onRetryItem={todoDispatcher.retryItem}
+          onStopRecurring={todoDispatcher.stopRecurring}
           onToggleTodoMode={todoDispatcher.toggleTodoMode}
           onClearCompleted={todoDispatcher.clearCompleted}
           onReorderItem={todoDispatcher.reorderItem}

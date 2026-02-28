@@ -14,6 +14,16 @@ export interface TodoItemServer {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  /** Whether this item repeats after completing */
+  recurring?: boolean;
+  /** Repeat interval in milliseconds */
+  intervalMs?: number;
+  /** How many times this item has completed */
+  runCount?: number;
+  /** Stop after N completions (0 = unlimited) */
+  maxRuns?: number;
+  /** ISO timestamp — don't dispatch before this time */
+  nextRunAt?: string | null;
 }
 
 interface TodoStore {
