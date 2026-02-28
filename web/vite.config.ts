@@ -30,12 +30,19 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, '..', 'dist'),
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        swarm: path.resolve(__dirname, 'swarm.html'),
+      },
+    },
   },
   server: {
     port: 5173,
     host: true,
     proxy: {
       '/api': 'http://localhost:3001',
+      '/swarm/api': 'http://localhost:3001',
       '/ws': { target: 'ws://localhost:3001', ws: true },
     },
   },

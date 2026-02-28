@@ -3,9 +3,11 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Box, IconButton, Text, ActionMenu, ActionList } from '@primer/react';
-import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon, ListUnorderedIcon } from '@primer/octicons-react';
+import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon, ListUnorderedIcon, GlobeIcon } from '@primer/octicons-react';
 import { useTodoDispatcher } from '../hooks/useTodoDispatcher';
+import { useSwarmStatus } from '../hooks/useSwarmStatus';
 import TodoPanel from './TodoPanel';
+import SwarmPopover from './SwarmPopover';
 import '@xterm/xterm/css/xterm.css';
 
 /* Constrain xterm inside tile cells */
@@ -162,6 +164,10 @@ export function TerminalView({ onBack }: Props) {
   const todoDispatcher = useTodoDispatcher(getTermInstances, tabs);
   const todoDispatcherRef = useRef(todoDispatcher);
   todoDispatcherRef.current = todoDispatcher;
+
+  // Swarm mode status
+  const swarm = useSwarmStatus();
+  const [showSwarmPopover, setShowSwarmPopover] = useState(false);
 
   useEffect(() => {
     saveCheckedSessions(tabs);
@@ -920,6 +926,31 @@ export function TerminalView({ onBack }: Props) {
         <Box sx={{ flex: 1 }} />
         {/* Action buttons — centered */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+          {/* Swarm mode indicator */}
+          <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+            <button
+              type="button"
+              aria-label="Swarm mode"
+              title={swarm.enabled ? `Swarm: ${swarm.tunnelUrl || 'no tunnel'}` : 'Swarm mode (disabled)'}
+              onClick={() => setShowSwarmPopover(prev => !prev)}
+              style={{
+                flexShrink: 0,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
+                backgroundColor: swarm.enabled ? 'var(--bgColor-success-emphasis, #238636)' : 'transparent',
+                color: swarm.enabled ? 'var(--fgColor-onEmphasis, #fff)' : 'var(--fgColor-muted, #768390)',
+                border: 'none', padding: 0,
+              }}
+            >
+              <GlobeIcon size={16} />
+            </button>
+            {showSwarmPopover && (
+              <SwarmPopover
+                swarm={swarm}
+                onClose={() => setShowSwarmPopover(false)}
+              />
+            )}
+          </Box>
           <button
             type="button"
             aria-label={showTodoPanel ? 'Hide todo queue (⌘⇧D)' : 'Show todo queue (⌘⇧D)'}

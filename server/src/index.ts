@@ -2,6 +2,8 @@ import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { URL } from 'url';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { getOrCreateToken, authMiddleware, validateWsToken } from './auth.js';
 import { sessionManager } from './session-manager.js';
 import { acpManager } from './acp-manager.js';
@@ -10,6 +12,15 @@ import { listHistoricalSessions, getSessionDetail, getSessionMessages, purgeSess
 import { getAllMeta, updateMeta, addTag, removeTag } from './session-meta.js';
 import { getTodos, setTodos } from './todo-store.js';
 import type { WsMessage, WsServerMessage } from './types.js';
+import swarmRouter from './swarm-router.js';
+import { loadSwarmKeys, generateSwarmKey, revokeSwarmKey, setSwarmEnabled, isSwarmEnabled } from './swarm-keys.js';
+import { loadBlocklist as loadSwarmBlocklist } from './swarm-blocklist.js';
+import { swarmTunnel } from './swarm-tunnel.js';
+import { writeFileSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const app = express();
@@ -309,6 +320,120 @@ app.put('/api/todos', (req, res) => {
   }
   setTodos(items, !!todoMode);
   res.json({ ok: true });
+});
+
+// Mount swarm API router (uses its own auth middleware)
+app.use('/swarm/api', swarmRouter);
+
+// Swarm management routes (owner-only, uses existing authMiddleware via /api prefix)
+app.get('/api/swarm/status', (_req, res) => {
+  const store = loadSwarmKeys();
+  const tunnel = swarmTunnel.getStatus();
+  res.json({
+    enabled: store.enabled,
+    keyCount: store.keys.length,
+    tunnelUrl: tunnel.url,
+    tunnelRunning: tunnel.running,
+    tunnelProvider: tunnel.provider,
+  });
+});
+
+app.put('/api/swarm/enabled', (req, res) => {
+  const { enabled } = req.body;
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({ error: 'enabled must be a boolean' });
+    return;
+  }
+  setSwarmEnabled(enabled);
+  res.json({ enabled });
+});
+
+app.post('/api/swarm/keys', (req, res) => {
+  const { label } = req.body;
+  if (!label || typeof label !== 'string') {
+    res.status(400).json({ error: 'label is required' });
+    return;
+  }
+  const key = generateSwarmKey(label.trim());
+  const tunnel = swarmTunnel.getStatus();
+  const baseUrl = tunnel.url || `http://localhost:${PORT}`;
+  res.status(201).json({
+    ...key,
+    inviteUrl: `${baseUrl}/swarm?key=${key.key}`,
+  });
+});
+
+app.get('/api/swarm/keys', (_req, res) => {
+  const store = loadSwarmKeys();
+  /** Number of hex characters to show in masked key */
+  const MASK_VISIBLE_CHARS = 8;
+  const masked = store.keys.map(k => ({
+    ...k,
+    key: k.key.slice(0, MASK_VISIBLE_CHARS) + '...',
+    fullKey: k.key,
+  }));
+  res.json(masked);
+});
+
+app.delete('/api/swarm/keys/:key', (req, res) => {
+  const revoked = revokeSwarmKey(req.params.key);
+  if (!revoked) {
+    res.status(404).json({ error: 'Key not found' });
+    return;
+  }
+  res.json({ revoked: true });
+});
+
+app.get('/api/swarm/blocklist', (_req, res) => {
+  res.json(loadSwarmBlocklist());
+});
+
+app.put('/api/swarm/blocklist', (req, res) => {
+  const { patterns } = req.body;
+  if (!Array.isArray(patterns)) {
+    res.status(400).json({ error: 'patterns must be an array' });
+    return;
+  }
+  const blocklistFile = join(homedir(), '.copilot-remote', 'swarm-blocklist.json');
+  writeFileSync(blocklistFile, JSON.stringify(patterns, null, 2));
+  res.json({ ok: true, count: patterns.length });
+});
+
+app.get('/api/swarm/tunnel', (_req, res) => {
+  res.json(swarmTunnel.getStatus());
+});
+
+app.post('/api/swarm/tunnel/start', async (_req, res) => {
+  try {
+    const url = await swarmTunnel.start(PORT);
+    res.json({ url, provider: swarmTunnel.getStatus().provider });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/swarm/tunnel/stop', (_req, res) => {
+  swarmTunnel.stop();
+  res.json({ stopped: true });
+});
+
+// Serve built frontend (production)
+const DIST_DIR = path.join(__dirname, '..', '..', 'dist');
+app.use(express.static(DIST_DIR));
+
+// Swarm page route
+app.get('/swarm', (_req, res) => {
+  res.sendFile(path.join(DIST_DIR, 'swarm.html'));
+});
+
+// SPA fallback (must be last static route)
+app.get('*', (req, res, next) => {
+  // Skip API and WebSocket paths
+  if (req.path.startsWith('/api') || req.path.startsWith('/ws') || req.path.startsWith('/swarm/api')) {
+    next();
+    return;
+  }
+  res.sendFile(path.join(DIST_DIR, 'index.html'));
 });
 
 // Terminal WebSocket — separate path for raw PTY I/O
