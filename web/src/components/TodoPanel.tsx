@@ -3,8 +3,20 @@ import { Box, Text } from '@primer/react';
 import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from '@primer/octicons-react';
 import type { TodoItem } from '../types';
 
-/** Width of the todo panel in pixels */
-const TODO_PANEL_WIDTH_PX = 280;
+/** Default width of the todo panel in pixels */
+const TODO_PANEL_DEFAULT_WIDTH_PX = 360;
+
+/** Minimum width the panel can be resized to */
+const TODO_PANEL_MIN_WIDTH_PX = 240;
+
+/** Maximum width the panel can be resized to */
+const TODO_PANEL_MAX_WIDTH_PX = 700;
+
+/** Width of the drag handle hit area in pixels */
+const DRAG_HANDLE_WIDTH_PX = 6;
+
+/** localStorage key for persisting panel width */
+const TODO_PANEL_WIDTH_KEY = 'copilot-remote-todo-panel-width';
 
 /** Maximum characters allowed in the todo input */
 const TODO_INPUT_MAX_LENGTH = 500;
@@ -56,6 +68,51 @@ export default function TodoPanel({
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Resizable width state — persisted to localStorage
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const saved = localStorage.getItem(TODO_PANEL_WIDTH_KEY);
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(parsed) ? Math.max(TODO_PANEL_MIN_WIDTH_PX, Math.min(TODO_PANEL_MAX_WIDTH_PX, parsed)) : TODO_PANEL_DEFAULT_WIDTH_PX;
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Persist width changes
+  useEffect(() => {
+    localStorage.setItem(TODO_PANEL_WIDTH_KEY, String(panelWidth));
+  }, [panelWidth]);
+
+  // Drag-to-resize handlers
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragStartRef.current = { startX: e.clientX, startWidth: panelWidth };
+    setIsDragging(true);
+  }, [panelWidth]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragStartRef.current) return;
+      // Dragging left edge: moving mouse left = wider panel
+      const delta = dragStartRef.current.startX - e.clientX;
+      const newWidth = Math.max(TODO_PANEL_MIN_WIDTH_PX, Math.min(TODO_PANEL_MAX_WIDTH_PX, dragStartRef.current.startWidth + delta));
+      setPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      dragStartRef.current = null;
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
   const pendingCount = items.filter(i => i.status === 'pending').length;
   const runningCount = items.filter(i => i.status === 'running').length;
   const doneCount = items.filter(i => i.status === 'done').length;
@@ -86,18 +143,44 @@ export default function TodoPanel({
   return (
     <Box
       sx={{
-        width: TODO_PANEL_WIDTH_PX,
-        minWidth: TODO_PANEL_WIDTH_PX,
-        maxWidth: TODO_PANEL_WIDTH_PX,
+        width: panelWidth,
+        minWidth: TODO_PANEL_MIN_WIDTH_PX,
+        maxWidth: TODO_PANEL_MAX_WIDTH_PX,
         height: '100%',
         display: 'flex',
-        flexDirection: 'column',
-        borderLeft: '1px solid',
-        borderColor: 'border.default',
+        flexDirection: 'row',
         bg: 'canvas.default',
         overflow: 'hidden',
+        position: 'relative',
+        // Disable text selection while dragging to avoid annoying highlights
+        userSelect: isDragging ? 'none' : 'auto',
       }}
     >
+      {/* Drag handle on left edge */}
+      <div
+        onMouseDown={handleDragStart}
+        style={{
+          width: DRAG_HANDLE_WIDTH_PX,
+          cursor: 'col-resize',
+          flexShrink: 0,
+          background: isDragging ? 'var(--bgColor-accent-emphasis, #316dca)' : 'transparent',
+          borderLeft: '1px solid var(--borderColor-default, #30363d)',
+          transition: isDragging ? 'none' : 'background 0.15s',
+        }}
+        onMouseEnter={(e) => { if (!isDragging) (e.currentTarget as HTMLDivElement).style.background = 'var(--borderColor-muted, #21262d)'; }}
+        onMouseLeave={(e) => { if (!isDragging) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+        title="Drag to resize"
+      />
+      {/* Panel content */}
+      <Box
+        sx={{
+          flex: 1,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
       {/* Header */}
       <Box
         sx={{
@@ -308,6 +391,7 @@ export default function TodoPanel({
           )}
         </Box>
       )}
+      </Box>
     </Box>
   );
 }
