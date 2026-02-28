@@ -111,7 +111,7 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
 
       <ActionList>
         <ActionList.Group>
-          <ActionList.GroupHeading as="h3" sx={{ fontSize: '11px', fontWeight: 600, color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.5px', cursor: 'pointer', userSelect: 'none' }} onClick={() => setCopilotCollapsed(!copilotCollapsed)}>
+          <ActionList.GroupHeading as="h3" sx={{ fontSize: '11px', fontWeight: 600, color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.5px', cursor: 'pointer', userSelect: 'none' }} onClick={() => setCopilotCollapsed(!copilotCollapsed)} onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCopilotCollapsed(!copilotCollapsed); } }} tabIndex={0} role="button" aria-expanded={!copilotCollapsed}>
             {copilotCollapsed ? <ChevronRightIcon size={12} /> : <ChevronDownIcon size={12} />}{' '}
             ⚡ Copilot{' '}
             <span style={{ fontWeight: 400 }}>

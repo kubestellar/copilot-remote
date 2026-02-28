@@ -39,8 +39,9 @@ export function NewSessionDialog({ onClose, onCreated }: Props) {
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
     >
-      <Box sx={{ bg: 'canvas.default', p: 4, borderRadius: 2, maxWidth: 480, width: '90%', border: '1px solid', borderColor: 'border.default' }}>
+      <Box role="dialog" aria-modal="true" aria-label="New Session" sx={{ bg: 'canvas.default', p: 4, borderRadius: 2, maxWidth: 480, width: '90%', border: '1px solid', borderColor: 'border.default' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
           <Text sx={{ fontWeight: 'bold', fontSize: 2, flex: 1, color: 'fg.default' }}>New Session</Text>
           <Button variant="invisible" onClick={onClose} leadingVisual={XIcon} aria-label="Close" />
