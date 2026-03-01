@@ -59,6 +59,7 @@ export interface TodoDispatcher {
   removeItem: (id: string) => void;
   retryItem: (id: string) => void;
   stopRecurring: (id: string) => void;
+  setRecurring: (id: string, intervalMs: number) => void;
   toggleTodoMode: () => void;
   clearCompleted: () => void;
   reorderItem: (id: string, direction: 'up' | 'down') => void;
@@ -299,6 +300,15 @@ export function useTodoDispatcher(
     ));
   }, []);
 
+  /** Enable recurring on an existing item with the given interval */
+  const setRecurring = useCallback((id: string, intervalMs: number) => {
+    setItems(prev => prev.map(i =>
+      i.id === id
+        ? { ...i, recurring: true, intervalMs, maxRuns: 0 }
+        : i
+    ));
+  }, []);
+
   const toggleTodoMode = useCallback(() => {
     setTodoMode(prev => {
       const next = !prev;
@@ -387,6 +397,7 @@ export function useTodoDispatcher(
     removeItem,
     retryItem,
     stopRecurring,
+    setRecurring,
     toggleTodoMode,
     clearCompleted,
     reorderItem,

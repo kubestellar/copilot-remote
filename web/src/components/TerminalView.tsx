@@ -1158,6 +1158,7 @@ export function TerminalView({ onBack }: Props) {
           onRemoveItem={todoDispatcher.removeItem}
           onRetryItem={todoDispatcher.retryItem}
           onStopRecurring={todoDispatcher.stopRecurring}
+          onSetRecurring={todoDispatcher.setRecurring}
           onToggleTodoMode={todoDispatcher.toggleTodoMode}
           onClearCompleted={todoDispatcher.clearCompleted}
           onReorderItem={todoDispatcher.reorderItem}

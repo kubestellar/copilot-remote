@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Box, Text } from '@primer/react';
-import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon, StopIcon } from '@primer/octicons-react';
+import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon, StopIcon, ClockIcon } from '@primer/octicons-react';
 import type { TodoItem } from '../types';
 
 /** Default width of the todo panel in pixels */
@@ -26,11 +26,13 @@ const COUNTDOWN_REFRESH_INTERVAL_MS = 1000;
 
 /** Preset interval options for recurring items */
 const RECURRING_PRESETS = [
-  { label: '1m', ms: 60_000 },
   { label: '5m', ms: 300_000 },
   { label: '15m', ms: 900_000 },
   { label: '30m', ms: 1_800_000 },
   { label: '1h', ms: 3_600_000 },
+  { label: '2h', ms: 7_200_000 },
+  { label: '6h', ms: 21_600_000 },
+  { label: '12h', ms: 43_200_000 },
 ] as const;
 
 /** Status dot colors mapped to Primer-compatible values */
@@ -83,6 +85,7 @@ interface TodoPanelProps {
   onRemoveItem: (id: string) => void;
   onRetryItem: (id: string) => void;
   onStopRecurring: (id: string) => void;
+  onSetRecurring: (id: string, intervalMs: number) => void;
   onToggleTodoMode: () => void;
   onClearCompleted: () => void;
   onReorderItem: (id: string, direction: 'up' | 'down') => void;
@@ -96,12 +99,16 @@ export default function TodoPanel({
   onRemoveItem,
   onRetryItem,
   onStopRecurring,
+  onSetRecurring,
   onToggleTodoMode,
   onClearCompleted,
   onReorderItem,
 }: TodoPanelProps) {
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Track which item's schedule picker is open (null = none)
+  const [schedulingItemId, setSchedulingItemId] = useState<string | null>(null);
 
   // Recurring mode state for the input area
   const [recurringEnabled, setRecurringEnabled] = useState(false);
@@ -322,7 +329,7 @@ export default function TodoPanel({
               transition: 'background 0.15s',
             }}
           >
-            ↻
+            <ClockIcon size={14} />
           </button>
         </Box>
         {/* Recurring interval picker — shown when recurring is toggled ON */}
@@ -351,7 +358,7 @@ export default function TodoPanel({
           </Box>
         )}
         <Text sx={{ fontSize: '10px', color: 'fg.muted', mt: 1, display: 'block' }}>
-          Press Enter to add{recurringEnabled ? ` (↻ every ${formatIntervalLabel(selectedInterval)})` : ''}
+          Press Enter to add{recurringEnabled ? ` (every ${formatIntervalLabel(selectedInterval)})` : ''}
         </Text>
       </Box>
 
@@ -382,7 +389,7 @@ export default function TodoPanel({
               {/* Status dot + recurring indicator */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0, mt: '3px' }}>
                 {item.recurring && (
-                  <span style={{ fontSize: 10, color: '#1f6feb', lineHeight: 1 }} title="Recurring">↻</span>
+                  <span style={{ fontSize: 10, color: '#1f6feb', lineHeight: 1, display: 'inline-flex' }} title="Recurring"><ClockIcon size={10} /></span>
                 )}
                 <span
                   title={STATUS_LABELS[item.status]}
@@ -423,7 +430,7 @@ export default function TodoPanel({
                 {/* Recurring info line */}
                 {item.recurring && (
                   <Text sx={{ fontSize: '9px', color: '#1f6feb', mt: '2px', display: 'block' }}>
-                    ↻ {(item.runCount ?? 0)}/{item.maxRuns === 0 ? '∞' : item.maxRuns}
+                    {(item.runCount ?? 0)}/{item.maxRuns === 0 ? '∞' : item.maxRuns}
                     {item.intervalMs ? ` · every ${formatIntervalLabel(item.intervalMs)}` : ''}
                     {item.status === 'pending' && item.nextRunAt && (
                       <> · next: {formatCountdown(new Date(item.nextRunAt).getTime() - Date.now())}</>
@@ -457,9 +464,16 @@ export default function TodoPanel({
                     <SyncIcon size={10} />
                   </ActionButton>
                 )}
-                {item.recurring && (
+                {item.recurring ? (
                   <ActionButton title="Stop recurring" onClick={() => onStopRecurring(item.id)}>
                     <StopIcon size={10} />
+                  </ActionButton>
+                ) : item.status !== 'running' && (
+                  <ActionButton
+                    title="Set schedule"
+                    onClick={() => setSchedulingItemId(prev => prev === item.id ? null : item.id)}
+                  >
+                    <ClockIcon size={10} />
                   </ActionButton>
                 )}
                 {item.status !== 'running' && (
@@ -468,6 +482,43 @@ export default function TodoPanel({
                   </ActionButton>
                 )}
               </Box>
+              {/* Inline schedule picker */}
+              {schedulingItemId === item.id && (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    gap: 1,
+                    mt: '4px',
+                    ml: '18px',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <Text sx={{ fontSize: '10px', color: 'fg.muted' }}>Schedule:</Text>
+                  {RECURRING_PRESETS.map(preset => (
+                    <button
+                      key={preset.ms}
+                      type="button"
+                      onClick={() => {
+                        onSetRecurring(item.id, preset.ms);
+                        setSchedulingItemId(null);
+                      }}
+                      onKeyDown={e => e.stopPropagation()}
+                      style={{
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        border: '1px solid var(--borderColor-default, #30363d)',
+                        background: 'transparent',
+                        color: 'var(--fgColor-muted, #8b949e)',
+                        fontSize: 10,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </Box>
+              )}
             </Box>
           ))
         )}
