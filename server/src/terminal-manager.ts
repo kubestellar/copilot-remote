@@ -99,6 +99,11 @@ class TerminalManager extends EventEmitter {
       inputBuffer: '',
     };
 
+    // Register tmux session name with prompt detector for capture-pane checks
+    if (TMUX_PATH && tmuxName) {
+      this.promptDetector.setTmuxSession(id, tmuxName);
+    }
+
     // Auto-launch AI CLI after shell is ready
     if (aiCli) {
       const cli = AI_CLIS.find(c => c.name === aiCli);
@@ -158,6 +163,11 @@ class TerminalManager extends EventEmitter {
       lastCommand: '',
       inputBuffer: '',
     };
+
+    // Register tmux session name with prompt detector for capture-pane checks
+    if (tmuxSession) {
+      this.promptDetector.setTmuxSession(id, tmuxSession);
+    }
 
     term.onData((data) => {
       this.emit('data', id, data);
@@ -357,6 +367,9 @@ class TerminalManager extends EventEmitter {
           lastCommand: s,  // Use session name so client doesn't treat as stale
           inputBuffer: '',
         };
+
+        // Register tmux session with prompt detector for capture-pane checks
+        this.promptDetector.setTmuxSession(id, s);
 
         term.onData((data) => {
           this.emit('data', id, data);

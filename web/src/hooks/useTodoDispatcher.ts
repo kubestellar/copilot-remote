@@ -17,6 +17,12 @@ const RECURRING_CHECK_INTERVAL_MS = 15_000;
 /** Interval (ms) for polling server to pick up items added via swarm API */
 const SERVER_POLL_INTERVAL_MS = 5_000;
 
+/** Delay (ms) between sending command text and pressing Enter.
+ *  CLI tools in raw terminal mode (e.g. Claude Code) need the Enter
+ *  keystroke as a separate PTY write so it isn't swallowed as part of
+ *  the pasted text buffer. */
+const DISPATCH_ENTER_DELAY_MS = 80;
+
 /** Generate a unique todo item ID */
 function generateTodoId(): string {
   return `todo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -43,6 +49,7 @@ interface TermInstance {
 interface TermTab {
   id: string;
   name: string;
+  checked?: boolean;
 }
 
 export interface TodoDispatcher {
@@ -62,6 +69,8 @@ export interface TodoDispatcher {
 export function useTodoDispatcher(
   getTermInstances: () => Map<string, TermInstance>,
   tabs: TermTab[],
+  activeTabId: string | null,
+  tileMode: boolean,
 ): TodoDispatcher {
   const [items, setItems] = useState<TodoItem[]>(loadItems);
   const [todoMode, setTodoMode] = useState<boolean>(loadTodoMode);
@@ -74,6 +83,12 @@ export function useTodoDispatcher(
 
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
+
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
+
+  const tileModeRef = useRef(tileMode);
+  tileModeRef.current = tileMode;
 
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -132,8 +147,16 @@ export function useTodoDispatcher(
     // server is already listening when fast commands complete immediately.
     inst.ws.send(JSON.stringify({ type: 'watch-prompt' }));
 
-    // Send the command to the terminal
-    inst.ws.send(item.description + '\r');
+    // Send command text first, then Enter as a separate write after a short
+    // delay.  CLI tools in raw mode (e.g. Claude Code) process each PTY
+    // write as a unit — sending text + \r in a single write can cause the
+    // Enter keystroke to be swallowed as part of the paste buffer.
+    inst.ws.send(item.description);
+    setTimeout(() => {
+      if (inst.ws.readyState === WebSocket.OPEN) {
+        inst.ws.send('\r');
+      }
+    }, DISPATCH_ENTER_DELAY_MS);
 
     // Update item state
     setItems(prev => prev.map(i =>
@@ -149,12 +172,25 @@ export function useTodoDispatcher(
     ));
   }, [getTermInstances]);
 
-  /** Find first idle tile (connected, no running item assigned) */
+  /** Find first idle VISIBLE tile (connected, no running item assigned).
+   *  In single mode only the active tab is eligible.
+   *  In tile mode only checked (tiled) tabs are eligible. */
   const findIdleTile = useCallback((): string | null => {
     const termInstances = getTermInstances();
     const currentItems = itemsRef.current;
+    const isTile = tileModeRef.current;
+    const activeId = activeTabIdRef.current;
 
     for (const tab of tabsRef.current) {
+      // Only dispatch to visible sessions
+      if (isTile) {
+        // Tile mode: only checked tabs are visible
+        if (!tab.checked) continue;
+      } else {
+        // Single mode: only the active tab is visible
+        if (tab.id !== activeId) continue;
+      }
+
       const inst = termInstances.get(tab.id);
       if (!inst || !inst.connected || inst.ws.readyState !== WebSocket.OPEN) continue;
 
@@ -198,6 +234,17 @@ export function useTodoDispatcher(
     }, RECURRING_CHECK_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [tryDispatchNext]);
+
+  // Try dispatching whenever pending items exist and terminals may have become
+  // available (tabs changed, connections established, page loaded).
+  useEffect(() => {
+    if (!todoMode) return;
+    const hasPending = items.some(i => i.status === 'pending');
+    if (!hasPending) return;
+    // Short delay to let terminal connections establish after mount
+    const timer = setTimeout(() => tryDispatchNext(), 500);
+    return () => clearTimeout(timer);
+  }, [todoMode, items, tabs, tryDispatchNext]);
 
   const addItem = useCallback((
     description: string,

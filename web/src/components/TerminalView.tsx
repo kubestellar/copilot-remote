@@ -161,7 +161,10 @@ export function TerminalView({ onBack }: Props) {
   const getTermInstances = useCallback(() => termInstances, []);
 
   // Todo dispatcher hook
-  const todoDispatcher = useTodoDispatcher(getTermInstances, tabs);
+  // Use tileActive (not raw tileMode) so dispatch uses single-tab logic when
+  // tile mode is on but no tabs are checked (which renders single view).
+  const tileActive = tileMode && tabs.some(t => t.checked);
+  const todoDispatcher = useTodoDispatcher(getTermInstances, tabs, activeTabId, tileActive);
   const todoDispatcherRef = useRef(todoDispatcher);
   todoDispatcherRef.current = todoDispatcher;
 
@@ -605,7 +608,6 @@ export function TerminalView({ onBack }: Props) {
 
   // Eagerly create terminal connections for ALL tabs so content is ready before switching
   // Skip only when tile mode is active AND has checked tabs (tiles are rendering)
-  const tileActive = tileMode && tabs.some(t => t.checked);
   useEffect(() => {
     if (!fontReady || tileActive) return;
     for (const tab of tabs) {
