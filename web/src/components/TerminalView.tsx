@@ -14,8 +14,9 @@ import '@xterm/xterm/css/xterm.css';
 const tileXtermStyles = document.createElement('style');
 tileXtermStyles.textContent = `
   .tile-xterm-container .xterm { height: 100% !important; width: 100% !important; }
-  .tile-xterm-container .xterm-viewport { overflow: hidden !important; }
   .tile-xterm-container .xterm-screen { width: 100% !important; }
+  .xterm-viewport { overflow-y: scroll !important; scrollbar-width: none !important; }
+  .xterm-viewport::-webkit-scrollbar { display: none !important; }
 `;
 if (!document.head.querySelector('[data-tile-xterm]')) {
   tileXtermStyles.setAttribute('data-tile-xterm', '');

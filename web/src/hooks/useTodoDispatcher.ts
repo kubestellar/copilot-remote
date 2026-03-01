@@ -20,8 +20,9 @@ const SERVER_POLL_INTERVAL_MS = 5_000;
 /** Delay (ms) between sending command text and pressing Enter.
  *  CLI tools in raw terminal mode (e.g. Claude Code) need the Enter
  *  keystroke as a separate PTY write so it isn't swallowed as part of
- *  the pasted text buffer. */
-const DISPATCH_ENTER_DELAY_MS = 80;
+ *  the pasted text buffer.  Longer commands need more time for tmux
+ *  to finish processing the paste before receiving the Enter. */
+const DISPATCH_ENTER_DELAY_MS = 200;
 
 /** Generate a unique todo item ID */
 function generateTodoId(): string {
