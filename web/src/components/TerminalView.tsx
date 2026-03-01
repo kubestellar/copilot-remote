@@ -1140,7 +1140,6 @@ export function TerminalView({ onBack }: Props) {
                 visibility: tab.id === activeTabId ? 'visible' : 'hidden',
                 pointerEvents: tab.id === activeTabId ? 'auto' : 'none',
                 '& .xterm': { height: '100%' },
-                '& .xterm-viewport': { overflow: 'hidden !important' },
               }}
             />
           ))}

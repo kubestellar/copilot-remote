@@ -140,6 +140,7 @@ class TerminalManager extends EventEmitter {
     delete envNoTmux.TMUX;
     try {
       execSync(`${TMUX_PATH} set-option -t "${tmuxSession}" window-size latest`, { stdio: 'ignore' });
+      execSync(`${TMUX_PATH} set-option -t "${tmuxSession}" mouse on`, { stdio: 'ignore' });
     } catch {}
     const term = pty.spawn(TMUX_PATH, [
       'new-session', '-s', groupName, '-t', tmuxSession,
@@ -339,15 +340,17 @@ class TerminalManager extends EventEmitter {
       }
       const id = `term-${s.replace('cr-', '')}`;
       try {
-        // Set window-size on the target session (overrides session-level 'manual' etc.)
+        // Set window-size and mouse on the target session before grouping
         try {
           execSync(`${TMUX_PATH} set-option -t "${s}" window-size latest`, { stdio: 'ignore' });
+          execSync(`${TMUX_PATH} set-option -t "${s}" mouse on`, { stdio: 'ignore' });
         } catch {}
         const groupName = `cr-${Date.now()}`;
         const envNoTmux = { ...process.env, TERM: 'xterm-256color' } as Record<string, string>;
         delete envNoTmux.TMUX;
         const term = pty.spawn(TMUX_PATH, [
           'new-session', '-s', groupName, '-t', s,
+          ';', 'set', 'mouse', 'on',
           ';', 'set', 'window-size', 'latest',
           ';', 'set', 'aggressive-resize', 'on',
         ], {
