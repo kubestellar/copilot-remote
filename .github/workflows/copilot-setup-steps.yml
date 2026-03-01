@@ -1,0 +1,38 @@
+name: Copilot Setup Steps
+# Pre-configures the Copilot coding agent's Ubuntu VM with build tools.
+# The agent can then run: npm run build, npm run lint, npx tsc --noEmit, etc.
+
+on: workflow_dispatch
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install native build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm install
+
+      - name: Build server
+        working-directory: server
+        run: npx tsc --noEmit
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm install
+
+      - name: Build web
+        working-directory: web
+        run: npx tsc && npx vite build
