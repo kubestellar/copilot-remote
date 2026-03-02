@@ -30,6 +30,7 @@ interface TermTab {
   checked: boolean;
   userRenamed?: boolean;
   lastIntent?: string;
+  lastCommand?: string;
 }
 
 const termInstances = new Map<string, {
@@ -227,7 +228,10 @@ export function TerminalView({ onBack }: Props) {
       try {
         const parsed = JSON.parse(e.data);
         if (parsed.type === 'command') {
-          setTabs(prev => prev.map(t => t.id === parsed.id && !t.userRenamed ? { ...t, name: parsed.command } : t));
+          setTabs(prev => prev.map(t => t.id === parsed.id
+            ? { ...t, name: t.userRenamed ? t.name : parsed.command, lastCommand: parsed.command }
+            : t
+          ));
           return;
         }
         if (parsed.type === 'exit') {
@@ -564,6 +568,7 @@ export function TerminalView({ onBack }: Props) {
               name,
               checked: savedChecked.has(t.tmuxSession),
               userRenamed: !!cached,
+              lastCommand: t.lastCommand || undefined,
             };
           });
           setTabs(restored);
@@ -904,6 +909,16 @@ export function TerminalView({ onBack }: Props) {
                     </Text>
                   )}
                 </Box>
+                {tab.lastCommand && showTodoPanel && (
+                  <Box
+                    as="button"
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); todoDispatcherRef.current.addItem(tab.lastCommand!); }}
+                    title={`Queue: ${tab.lastCommand}`}
+                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: 'accent.fg' } }}
+                  >
+                    <ListUnorderedIcon size={12} />
+                  </Box>
+                )}
                 {tab.tmuxSession && (
                   <Box
                     as="button"
@@ -1095,9 +1110,25 @@ export function TerminalView({ onBack }: Props) {
                     — {tab.lastIntent}
                   </span>
                 )}
+                {tab.lastCommand && showTodoPanel && (
+                  <button
+                    type="button"
+                    title={`Queue: ${tab.lastCommand}`}
+                    onClick={(e) => { e.stopPropagation(); todoDispatcherRef.current.addItem(tab.lastCommand!); }}
+                    style={{
+                      background: 'transparent', border: '1px solid',
+                      borderColor: focusedTileId === tab.id ? 'rgba(255,255,255,0.3)' : '#30363d',
+                      borderRadius: 3, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681',
+                      cursor: 'pointer', padding: '0 3px', fontSize: 9, lineHeight: '16px', flexShrink: 0,
+                      marginLeft: 'auto',
+                    }}
+                  >
+                    <ListUnorderedIcon size={10} />
+                  </button>
+                )}
                 {tab.tmuxSession && (
                   <>
-                    <span style={{ fontSize: 9, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681', fontFamily: 'monospace', marginLeft: 'auto', flexShrink: 0 }}>
+                    <span style={{ fontSize: 9, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681', fontFamily: 'monospace', marginLeft: tab.lastCommand && showTodoPanel ? 0 : 'auto', flexShrink: 0 }}>
                       tmux attach -t {tab.tmuxSession}
                     </span>
                     <button
