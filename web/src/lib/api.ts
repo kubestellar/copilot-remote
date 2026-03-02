@@ -57,4 +57,21 @@ export const api = {
 
   saveTodos: (items: TodoItem[], todoMode: boolean) =>
     request<{ ok: boolean }>('/api/todos', { method: 'PUT', body: JSON.stringify({ items, todoMode }) }),
+
+  /** Upload a file (drag-drop image) to the server and return its filesystem path */
+  uploadFile: async (file: File): Promise<{ path: string }> => {
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    /** Process 8KB at a time to avoid call stack overflow with String.fromCharCode */
+    const CHUNK_SIZE = 8192;
+    for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE));
+    }
+    const base64Data = btoa(binary);
+    return request<{ path: string }>('/api/upload', {
+      method: 'POST',
+      body: JSON.stringify({ filename: file.name, data: base64Data, mimeType: file.type }),
+    });
+  },
 };

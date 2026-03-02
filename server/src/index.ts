@@ -16,18 +16,27 @@ import swarmRouter from './swarm-router.js';
 import { loadSwarmKeys, generateSwarmKey, revokeSwarmKey, setSwarmEnabled, isSwarmEnabled } from './swarm-keys.js';
 import { loadBlocklist as loadSwarmBlocklist } from './swarm-blocklist.js';
 import { swarmTunnel } from './swarm-tunnel.js';
-import { writeFileSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
+/** Directory where uploaded files (drag-drop images) are saved */
+const UPLOAD_DIR = '/tmp/copilot-remote-uploads';
+/** Maximum upload payload size (20 MB base64 ≈ 15 MB file) */
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** Only image MIME types are accepted for upload */
+const ALLOWED_MIME_PREFIX = 'image/';
+/** Maximum sanitized filename length */
+const MAX_FILENAME_LENGTH = 255;
+
 const app = express();
 const server = createServer(app);
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: MAX_UPLOAD_BYTES }));
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -37,9 +46,39 @@ app.use((req, res, next) => {
 });
 app.use('/api', authMiddleware);
 
+// Ensure upload directory exists
+if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
+
 // REST API
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', version: '0.1.0' });
+});
+
+// File upload endpoint (drag-drop images from browser → server filesystem)
+app.post('/api/upload', (req, res) => {
+  try {
+    const { filename, data, mimeType } = req.body;
+    if (!filename || !data) {
+      res.status(400).json({ error: 'filename and data are required' });
+      return;
+    }
+    if (mimeType && !mimeType.startsWith(ALLOWED_MIME_PREFIX)) {
+      res.status(400).json({ error: `Only image files are allowed (got ${mimeType})` });
+      return;
+    }
+    // Sanitize filename: strip path separators, limit length
+    const safeName = filename.replace(/[/\\]/g, '_').slice(0, MAX_FILENAME_LENGTH);
+    const finalName = `${Date.now()}-${safeName}`;
+    const filePath = join(UPLOAD_DIR, finalName);
+
+    const buffer = Buffer.from(data, 'base64');
+    writeFileSync(filePath, buffer);
+
+    res.json({ path: filePath });
+  } catch (err: any) {
+    console.error('[Upload] Failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/sessions', (_req, res) => {

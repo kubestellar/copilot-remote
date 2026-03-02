@@ -6,6 +6,7 @@ import { Box, IconButton, Text, ActionMenu, ActionList } from '@primer/react';
 import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon, ListUnorderedIcon, GlobeIcon } from '@primer/octicons-react';
 import { useTodoDispatcher } from '../hooks/useTodoDispatcher';
 import { useSwarmStatus } from '../hooks/useSwarmStatus';
+import { api } from '../lib/api';
 import TodoPanel from './TodoPanel';
 import SwarmPopover from './SwarmPopover';
 import '@xterm/xterm/css/xterm.css';
@@ -17,6 +18,14 @@ tileXtermStyles.textContent = `
   .tile-xterm-container .xterm-screen { width: 100% !important; }
   .xterm-viewport { overflow-y: scroll !important; scrollbar-width: none !important; }
   .xterm-viewport::-webkit-scrollbar { display: none !important; }
+  .drag-over-highlight { outline: 2px dashed #58a6ff !important; outline-offset: -2px; position: relative; }
+  .drag-over-highlight::after {
+    content: 'Drop image here';
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #58a6ff; font-size: 14px; font-weight: 600;
+    pointer-events: none; z-index: 10; text-shadow: 0 0 8px rgba(0,0,0,0.8);
+    background: rgba(13, 17, 23, 0.7); padding: 8px 16px; border-radius: 6px;
+  }
 `;
 if (!document.head.querySelector('[data-tile-xterm]')) {
   tileXtermStyles.setAttribute('data-tile-xterm', '');
@@ -103,6 +112,8 @@ function uniqueName(baseName: string, existingNames: string[]): string {
 const CHECKED_TILES_KEY = 'copilot-remote-checked-tiles';
 const TILE_MODE_KEY = 'copilot-remote-tile-mode';
 const TODO_PANEL_KEY = 'copilot-remote-show-todo-panel';
+/** CSS class applied to terminal containers during image drag-over */
+const DRAG_OVER_CLASS = 'drag-over-highlight';
 
 /** Load saved checked tmux session names */
 function loadCheckedSessions(): Set<string> {
@@ -838,6 +849,99 @@ export function TerminalView({ onBack }: Props) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [hasChecked, aiClis, addTab, fetchTmuxSessions]);
+
+  /** Upload dropped image files to the server and paste their paths into the terminal */
+  const handleFileDrop = useCallback(async (tabId: string, files: FileList) => {
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+
+    const paths: string[] = [];
+    for (const file of imageFiles) {
+      try {
+        const result = await api.uploadFile(file);
+        paths.push(result.path);
+      } catch (err) {
+        console.error('[DragDrop] Upload failed:', err);
+      }
+    }
+
+    if (paths.length === 0) return;
+
+    const inst = termInstances.get(tabId);
+    if (inst && inst.ws.readyState === WebSocket.OPEN) {
+      inst.ws.send(paths.join(' '));
+    }
+  }, []);
+
+  /** Create drag-drop event handlers for a terminal container element */
+  const setupDragDrop = useCallback((el: HTMLElement, tabId: string) => {
+    const onDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('Files')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'copy';
+      el.classList.add(DRAG_OVER_CLASS);
+    };
+
+    const onDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.relatedTarget && el.contains(e.relatedTarget as Node)) return;
+      el.classList.remove(DRAG_OVER_CLASS);
+    };
+
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      el.classList.remove(DRAG_OVER_CLASS);
+      if (e.dataTransfer?.files.length) {
+        handleFileDrop(tabId, e.dataTransfer.files);
+      }
+    };
+
+    el.addEventListener('dragover', onDragOver);
+    el.addEventListener('dragleave', onDragLeave);
+    el.addEventListener('drop', onDrop);
+
+    return () => {
+      el.removeEventListener('dragover', onDragOver);
+      el.removeEventListener('dragleave', onDragLeave);
+      el.removeEventListener('drop', onDrop);
+      el.classList.remove(DRAG_OVER_CLASS);
+    };
+  }, [handleFileDrop]);
+
+  // Attach drag-drop handlers to all visible terminal containers
+  useEffect(() => {
+    const cleanups: Array<() => void> = [];
+
+    if (tileActive) {
+      for (const tab of checkedTabs) {
+        const el = tileContainerRefs.current.get(tab.id);
+        if (el) cleanups.push(setupDragDrop(el, tab.id));
+      }
+    } else {
+      for (const tab of tabs) {
+        const el = singleContainerRefs.current.get(tab.id);
+        if (el) cleanups.push(setupDragDrop(el, tab.id));
+      }
+    }
+
+    return () => { for (const cleanup of cleanups) cleanup(); };
+  }, [tabs, checkedTabs, tileActive, setupDragDrop]);
+
+  // Prevent browser default file drop behavior (navigating to file)
+  useEffect(() => {
+    const prevent = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+    };
+    document.addEventListener('dragover', prevent);
+    document.addEventListener('drop', prevent);
+    return () => {
+      document.removeEventListener('dragover', prevent);
+      document.removeEventListener('drop', prevent);
+    };
+  }, []);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
