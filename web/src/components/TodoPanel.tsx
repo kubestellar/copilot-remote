@@ -450,7 +450,7 @@ export default function TodoPanel({
                 </Text>
                 {item.status === 'running' && item.assignedTileName && (
                   <Text sx={{ fontSize: '9px', color: 'attention.fg', mt: '2px', display: 'block' }}>
-                    running in: {item.assignedTileName}
+                    running in tab named: {item.assignedTileName}
                   </Text>
                 )}
                 {item.status === 'failed' && (
