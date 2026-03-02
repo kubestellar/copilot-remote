@@ -505,11 +505,9 @@ export default function TodoPanel({
                     <ClockIcon size={10} />
                   </ActionButton>
                 )}
-                {item.status !== 'running' && (
-                  <ActionButton title="Remove" onClick={() => onRemoveItem(item.id)} danger>
-                    <XIcon size={10} />
-                  </ActionButton>
-                )}
+                <ActionButton title="Remove" onClick={() => onRemoveItem(item.id)} danger>
+                  <XIcon size={10} />
+                </ActionButton>
               </Box>
               {/* Inline schedule picker */}
               {schedulingItemId === item.id && (
