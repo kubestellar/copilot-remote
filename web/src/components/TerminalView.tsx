@@ -762,6 +762,7 @@ export function TerminalView({ onBack }: Props) {
     if (inst && inst.term.element?.parentElement === container) {
       // Already mounted in correct container — fit to fill viewport then focus
       try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
+      inst.term.scrollToBottom();
       inst.term.focus();
       return;
     }
@@ -778,6 +779,7 @@ export function TerminalView({ onBack }: Props) {
       // Force full redraw after reparenting (element was in detached tile container)
       setTimeout(() => {
         try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
+        inst.term.scrollToBottom();
         inst.term.refresh(0, inst.term.rows - 1);
       }, 50);
       inst.term.focus();
@@ -880,7 +882,7 @@ export function TerminalView({ onBack }: Props) {
             inst.term.open(el);
           }
           inst.container = el;
-          try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
+          try { inst.fitAddon.fit(); inst.term.scrollToBottom(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
         } else {
           createTermConnection(tab.id, el, tileFontSize);
         }
@@ -898,7 +900,7 @@ export function TerminalView({ onBack }: Props) {
         if (cancelled) return;
         for (const tab of checked) {
           const inst = termInstances.get(tab.id);
-          if (inst) try { inst.fitAddon.fit(); } catch {}
+          if (inst) try { inst.fitAddon.fit(); inst.term.scrollToBottom(); } catch {}
         }
       });
     };
