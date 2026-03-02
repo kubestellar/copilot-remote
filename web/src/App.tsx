@@ -282,8 +282,27 @@ function ConnectionSetup({ onComplete }: { onComplete: () => void }) {
       <Box sx={{ p: 4, maxWidth: 400, width: '100%' }}>
         <Text as="h2" sx={{ mb: 3, color: 'fg.default' }}>⚡ Copilot Remote Setup</Text>
         <Text sx={{ mb: 3, display: 'block', color: 'fg.muted', fontSize: 1 }}>
-          Enter the auth token shown when you started the server.
+          Enter the auth token to connect to your server.
         </Text>
+        <Box sx={{
+          mb: 3, p: 2, borderRadius: 2,
+          bg: 'canvas.subtle',
+          border: '1px solid',
+          borderColor: 'border.muted',
+          fontSize: 0,
+          color: 'fg.muted',
+        }}>
+          <Text sx={{ display: 'block', fontWeight: 'bold', color: 'fg.default', mb: 1, fontSize: 1 }}>How to find your token:</Text>
+          <Text as="p" sx={{ m: 0, mb: 1 }}>
+            The token is printed when the server starts:
+          </Text>
+          <Box as="code" sx={{ display: 'block', p: 1, bg: 'canvas.default', borderRadius: 1, fontFamily: 'mono', fontSize: '11px', mb: 1 }}>
+            cat ~/.copilot-remote/auth-token
+          </Box>
+          <Text as="p" sx={{ m: 0, fontSize: '11px' }}>
+            Or check the server terminal output for the line starting with "Auth token:".
+          </Text>
+        </Box>
         <Box sx={{ mb: 3 }}>
           <Text as="label" sx={{ display: 'block', mb: 1, fontWeight: 'bold', color: 'fg.default', fontSize: 1 }}>Auth Token</Text>
           <input
