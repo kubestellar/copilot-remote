@@ -270,6 +270,11 @@ export function TerminalView({ onBack }: Props) {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);
     });
 
+    // Forward mouse events (scroll, click) so tmux mouse mode works
+    term.onBinary((data) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    });
+
     term.onResize(({ cols, rows }) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     });
