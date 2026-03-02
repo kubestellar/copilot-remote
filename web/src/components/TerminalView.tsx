@@ -160,7 +160,7 @@ export function TerminalView({ onBack }: Props) {
   const [focusedTileId, setFocusedTileId] = useState<string | null>(null);
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [showTodoPanel, setShowTodoPanel] = useState(() => localStorage.getItem(TODO_PANEL_KEY) === 'true');
+  const [showTodoPanel, setShowTodoPanel] = useState(() => localStorage.getItem(TODO_PANEL_KEY) !== 'false');
   const singleContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const tileContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const intentRef = useRef<Map<string, string>>(new Map());

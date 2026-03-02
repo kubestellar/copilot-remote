@@ -14,7 +14,7 @@ import type { WsMessage, ChatMessage } from './types';
 export default function App() {
   const [activeTab, setActiveTab] = useState<'sessions' | 'terminal'>(() => {
     const saved = localStorage.getItem('copilot-remote-active-tab');
-    return saved === 'terminal' ? 'terminal' : 'sessions';
+    return saved === 'sessions' ? 'sessions' : 'terminal';
   });
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     () => localStorage.getItem('copilot-remote-active-session')
@@ -209,7 +209,7 @@ export default function App() {
             onClick={() => setActiveTab('terminal')}
             icon={TerminalIcon}
           >
-            Bidirectional
+            Terminals
           </UnderlineNav.Item>
         </UnderlineNav>
       </Box>
