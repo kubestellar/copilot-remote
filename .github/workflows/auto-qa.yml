@@ -673,7 +673,7 @@ jobs:
                 body: buildBody('Security', 'npm audit --audit-level=high',
                   'Server: ' + readOutput('/tmp/audit-server.json', 20) + '\nWeb: ' + readOutput('/tmp/audit-web.json', 20),
                   ['Run `npm audit fix` in server/ and web/', 'Review advisories for manual fixes']),
-                labels: ['bug', 'auto-qa:security', 'auto-qa'],
+                labels: ['bug', 'auto-qa:security', 'auto-qa', 'ai-fix-requested', 'help wanted'],
               });
             }
 
@@ -685,7 +685,7 @@ jobs:
                   'No ErrorBoundary component found in web/src/. Unhandled component errors will crash the entire app.',
                   ['Create an ErrorBoundary component wrapping the main App', 'Show a user-friendly fallback UI on crash',
                    'Log errors to console for debugging'], false),
-                labels: ['bug', 'auto-qa:resilience', 'auto-qa'],
+                labels: ['bug', 'auto-qa:resilience', 'auto-qa', 'ai-fix-requested', 'help wanted'],
               });
             }
 
@@ -726,7 +726,7 @@ jobs:
                     readOutput('/tmp/focus-memo.txt'),
                     ['Wrap frequently re-rendered components with React.memo()',
                      'Focus on list item components and sidebar items first']),
-                  labels: ['enhancement', fl, 'auto-qa'],
+                  labels: ['enhancement', fl, 'auto-qa', 'ai-fix-requested', 'help wanted'],
                 });
               }
             }
@@ -739,7 +739,7 @@ jobs:
                     readOutput('/tmp/focus-secrets.txt'),
                     ['Move secrets to environment variables', 'Use .env files (not committed) for local dev',
                      'Never commit tokens or passwords to source control']),
-                  labels: ['bug', fl, 'auto-qa'],
+                  labels: ['bug', fl, 'auto-qa', 'ai-fix-requested', 'help wanted'],
                 });
               }
               if (process.env.FOCUS_VALIDATION === 'true') {
@@ -759,7 +759,7 @@ jobs:
                   body: buildFocusBody('Security', 'XSS Risk',
                     readOutput('/tmp/focus-xss.txt'),
                     ['Sanitize HTML with DOMPurify before rendering', 'Prefer React JSX over raw HTML injection']),
-                  labels: ['bug', fl, 'auto-qa'],
+                  labels: ['bug', fl, 'auto-qa', 'ai-fix-requested', 'help wanted'],
                 });
               }
             }
@@ -805,7 +805,7 @@ jobs:
                     ['Use relative units (%, vh/vw) or CSS clamp()',
                      'Test on narrow viewports (375px)',
                      'Add responsive breakpoints for sidebar/chat layout']),
-                  labels: ['enhancement', fl, 'auto-qa'],
+                  labels: ['enhancement', fl, 'auto-qa', 'ai-fix-requested', 'help wanted'],
                 });
               }
             }
@@ -818,7 +818,7 @@ jobs:
                     readOutput('/tmp/focus-todos.txt'),
                     ['Review and prioritize TODO items', 'Create issues for actionable items',
                      'Remove stale TODOs that are no longer relevant']),
-                  labels: ['enhancement', fl, 'auto-qa'],
+                  labels: ['enhancement', fl, 'auto-qa', 'ai-fix-requested', 'help wanted'],
                 });
               }
               if (process.env.FOCUS_PWA === 'true') {
@@ -830,7 +830,7 @@ jobs:
                      'Create PWA icons (pwa-192.png, pwa-512.png)',
                      'Handle beforeinstallprompt for Add to Home Screen',
                      'Consider push notifications for live session alerts']),
-                  labels: ['enhancement', fl, 'auto-qa'],
+                  labels: ['enhancement', fl, 'auto-qa', 'ai-fix-requested', 'help wanted'],
                 });
               }
               if (process.env.FOCUS_TESTS === 'true') {
@@ -841,7 +841,7 @@ jobs:
                     ['Add vitest for unit tests', 'Start with API route tests (session CRUD)',
                      'Add component tests for SessionList and ChatView',
                      'Consider playwright for E2E mobile testing']),
-                  labels: ['enhancement', fl, 'auto-qa'],
+                  labels: ['enhancement', fl, 'auto-qa', 'ai-fix-requested', 'help wanted'],
                 });
               }
             }
