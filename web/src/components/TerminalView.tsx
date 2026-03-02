@@ -883,14 +883,6 @@ export function TerminalView({ onBack }: Props) {
           }
           inst.container = el;
           try { inst.fitAddon.fit(); inst.term.scrollToBottom(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
-          // Force full redraw — moving the canvas element between DOM containers loses rendered content
-          setTimeout(() => {
-            try {
-              inst.fitAddon.fit();
-              inst.term.refresh(0, inst.term.rows - 1);
-              inst.term.scrollToBottom();
-            } catch {}
-          }, 50);
         } else {
           createTermConnection(tab.id, el, tileFontSize);
         }
@@ -903,13 +895,16 @@ export function TerminalView({ onBack }: Props) {
       if (pending > 0) {
         setTimeout(() => { if (!cancelled) mountTiles(); }, 100);
       }
-      // Fit all terminals after browser layout resolves
+      // Fit & redraw all terminals after browser layout resolves (double-rAF avoids jitter)
       requestAnimationFrame(() => {
         if (cancelled) return;
-        for (const tab of checked) {
-          const inst = termInstances.get(tab.id);
-          if (inst) try { inst.fitAddon.fit(); inst.term.refresh(0, inst.term.rows - 1); inst.term.scrollToBottom(); } catch {}
-        }
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          for (const tab of checked) {
+            const inst = termInstances.get(tab.id);
+            if (inst) try { inst.fitAddon.fit(); inst.term.refresh(0, inst.term.rows - 1); inst.term.scrollToBottom(); } catch {}
+          }
+        });
       });
     };
     // Start after initial DOM commit
