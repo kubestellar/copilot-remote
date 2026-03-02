@@ -226,21 +226,30 @@ export function TerminalView({ onBack }: Props) {
     // Suppress browser context menu so tmux right-click menus work
     term.element?.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // Enable Ctrl+C (copy when selected), Ctrl+V (paste), Ctrl+X (cut/copy) via system clipboard
+    // Clipboard: Cmd/Ctrl+C (copy), Cmd/Ctrl+V (paste), Cmd/Ctrl+X (cut), Cmd/Ctrl+A (select all)
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       if (e.type !== 'keydown') return true;
       const isMac = navigator.platform.startsWith('Mac');
       const mod = isMac ? e.metaKey : e.ctrlKey;
       if (!mod) return true;
 
+      // Paste: read system clipboard and send to terminal via WebSocket
       if (e.key === 'v') {
         navigator.clipboard.readText().then(text => {
           if (text && ws.readyState === WebSocket.OPEN) ws.send(text);
         }).catch(() => {});
-        return false; // prevent xterm default
+        return false;
       }
+      // Copy / Cut: copy selected text to system clipboard
       if ((e.key === 'c' || e.key === 'x') && term.hasSelection()) {
         navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+        return false;
+      }
+      // On Mac, Cmd+C with no selection should be a no-op (Ctrl+C is the interrupt)
+      if (isMac && e.key === 'c') return false;
+      // Select all
+      if (e.key === 'a') {
+        term.selectAll();
         return false;
       }
       return true;
@@ -316,15 +325,6 @@ export function TerminalView({ onBack }: Props) {
         term.write('\r\n\x1b[33m[Disconnected]\x1b[0m\r\n');
       }
     };
-
-    // Let the browser handle Cmd+C/V/X/A (copy/paste/cut/select-all) natively
-    // instead of xterm sending them as control characters to the PTY
-    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      const isMac = navigator.platform.startsWith('Mac');
-      const mod = isMac ? e.metaKey : e.ctrlKey;
-      if (mod && ['c', 'v', 'x', 'a'].includes(e.key)) return false;
-      return true;
-    });
 
     term.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);
