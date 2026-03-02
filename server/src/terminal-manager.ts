@@ -219,6 +219,19 @@ class TerminalManager extends EventEmitter {
     }
   }
 
+  /** Get the current command running in a tmux session's active pane */
+  getTmuxPaneCommand(sessionName: string): string {
+    if (!TMUX_PATH) return '';
+    try {
+      return execSync(
+        `${TMUX_PATH} display-message -t "${sessionName}" -p "#{pane_current_command}"`,
+        { encoding: 'utf8', timeout: 2000 },
+      ).trim();
+    } catch {
+      return '';
+    }
+  }
+
   write(id: string, data: string): boolean {
     const t = this.terminals.get(id);
     if (!t) return false;
@@ -361,13 +374,23 @@ class TerminalManager extends EventEmitter {
           env: envNoTmux,
         });
 
+        // Detect what's actually running in the tmux pane
+        const paneCmd = this.getTmuxPaneCommand(s);
+        const paneTitle = this.getTmuxPaneTitle(s);
+        // Prefer pane title (set by CLI tools), fall back to current command
+        // Filter out generic shell names that aren't useful as tab labels
+        const SHELL_NAMES = new Set(['bash', 'zsh', 'sh', 'fish', 'tmux', 'login']);
+        const detectedCommand = paneTitle && !SHELL_NAMES.has(paneTitle)
+          ? paneTitle
+          : (paneCmd && !SHELL_NAMES.has(paneCmd) ? paneCmd : '');
+
         const terminal: Terminal = {
           id,
           pty: term,
           cwd: homedir(),
           createdAt: new Date().toISOString(),
           tmuxSession: s,
-          lastCommand: s,  // Use session name so client doesn't treat as stale
+          lastCommand: detectedCommand,
           inputBuffer: '',
         };
 

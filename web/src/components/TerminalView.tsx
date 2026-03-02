@@ -86,6 +86,12 @@ function removeCachedTabName(tmuxSession: string) {
   saveTabNameCache(cache);
 }
 
+/** Check if a string is a tmux session identifier (not a meaningful tab name) */
+const TMUX_SESSION_ID_RE = /^cr-\d+$/;
+function isMeaningfulName(name: string): boolean {
+  return !!name && !TMUX_SESSION_ID_RE.test(name);
+}
+
 /** Generate a unique tab name given existing tab names */
 function uniqueName(baseName: string, existingNames: string[]): string {
   if (!existingNames.includes(baseName)) return baseName;
@@ -228,10 +234,15 @@ export function TerminalView({ onBack }: Props) {
       try {
         const parsed = JSON.parse(e.data);
         if (parsed.type === 'command') {
-          setTabs(prev => prev.map(t => t.id === parsed.id
-            ? { ...t, name: t.userRenamed ? t.name : parsed.command, lastCommand: parsed.command }
-            : t
-          ));
+          setTabs(prev => prev.map(t => {
+            if (t.id !== parsed.id) return t;
+            const newName = t.userRenamed ? t.name : parsed.command;
+            // Cache the tab name so it survives browser refresh
+            if (t.tmuxSession && isMeaningfulName(newName)) {
+              setCachedTabName(t.tmuxSession, newName);
+            }
+            return { ...t, name: newName, lastCommand: parsed.command };
+          }));
           return;
         }
         if (parsed.type === 'exit') {
@@ -470,9 +481,11 @@ export function TerminalView({ onBack }: Props) {
               setTabs(prev => {
                 if (prev.some(t => t.tmuxSession === s)) return prev;
                 const cachedName = getCachedTabName(data.tmuxSession || s);
-                const name = cachedName || uniqueName(s, prev.map(t => t.name));
-                setCachedTabName(data.tmuxSession || s, name);
-                return [...prev, { id: data.id, tmuxSession: data.tmuxSession || s, name, checked: loadCheckedSessions().has(data.tmuxSession || s), userRenamed: !!cachedName }];
+                const meaningfulCached = cachedName && isMeaningfulName(cachedName) ? cachedName : null;
+                const fallbackName = isMeaningfulName(s) ? s : `Shell ${prev.length + 1}`;
+                const name = meaningfulCached || uniqueName(fallbackName, prev.map(t => t.name));
+                if (isMeaningfulName(name)) setCachedTabName(data.tmuxSession || s, name);
+                return [...prev, { id: data.id, tmuxSession: data.tmuxSession || s, name, checked: loadCheckedSessions().has(data.tmuxSession || s), userRenamed: !!meaningfulCached }];
               });
             }
           }
@@ -558,16 +571,20 @@ export function TerminalView({ onBack }: Props) {
            const savedChecked = loadCheckedSessions();
           const restored: TermTab[] = unique.map((t, i) => {
             const cached = getCachedTabName(t.tmuxSession);
-            const baseName = cached || t.lastCommand || t.tmuxSession || `Shell ${i + 1}`;
+            // Only use cached/lastCommand/tmuxSession if they're meaningful (not raw session IDs)
+            const meaningfulCached = cached && isMeaningfulName(cached) ? cached : null;
+            const meaningfulCmd = t.lastCommand && isMeaningfulName(t.lastCommand) ? t.lastCommand : null;
+            const baseName = meaningfulCached || meaningfulCmd || `Shell ${i + 1}`;
             const name = uniqueName(baseName, usedNames);
             usedNames.push(name);
-            if (t.tmuxSession) setCachedTabName(t.tmuxSession, name);
+            // Only cache meaningful names (avoid polluting cache with session IDs)
+            if (t.tmuxSession && isMeaningfulName(name)) setCachedTabName(t.tmuxSession, name);
             return {
               id: t.id,
               tmuxSession: t.tmuxSession || '',
               name,
               checked: savedChecked.has(t.tmuxSession),
-              userRenamed: !!cached,
+              userRenamed: !!meaningfulCached,
               lastCommand: t.lastCommand || undefined,
             };
           });
