@@ -797,6 +797,22 @@ export function TerminalView({ onBack }: Props) {
     return () => window.removeEventListener('resize', handleResize);
   }, [tileMode]);
 
+  // Prevent wheel events on single-mode terminal containers from scrolling the page
+  // Must use native addEventListener with { passive: false } to allow preventDefault
+  useEffect(() => {
+    const handler = (e: WheelEvent) => { e.preventDefault(); };
+    const attached: HTMLElement[] = [];
+    for (const [, el] of singleContainerRefs.current) {
+      el.addEventListener('wheel', handler, { passive: false });
+      attached.push(el);
+    }
+    return () => {
+      for (const el of attached) {
+        el.removeEventListener('wheel', handler);
+      }
+    };
+  }, [tabs.length, tileActive]);
+
   // Poll tmux pane titles for intent display (covers titles set before we attached)
   useEffect(() => {
     const { serverUrl, token } = getServerUrls();
@@ -860,6 +876,7 @@ export function TerminalView({ onBack }: Props) {
     }
     let cancelled = false;
     const focusHandlers: Array<{ el: HTMLElement; handler: () => void }> = [];
+    const wheelHandlers: Array<{ el: HTMLElement; handler: (e: WheelEvent) => void }> = [];
     const mountTiles = () => {
       if (cancelled) return;
       const checked = tabsRef.current.filter(t => t.checked);
@@ -887,9 +904,13 @@ export function TerminalView({ onBack }: Props) {
           createTermConnection(tab.id, el, tileFontSize);
         }
         // Track focus on each tile's terminal
-        const handler = () => { if (!cancelled) setFocusedTileId(tab.id); };
-        el.addEventListener('focusin', handler);
-        focusHandlers.push({ el, handler });
+        const focusHandler = () => { if (!cancelled) setFocusedTileId(tab.id); };
+        el.addEventListener('focusin', focusHandler);
+        focusHandlers.push({ el, handler: focusHandler });
+        // Capture wheel events so they go to xterm/tmux instead of scrolling the page
+        const wheelHandler = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
+        el.addEventListener('wheel', wheelHandler, { passive: false });
+        wheelHandlers.push({ el, handler: wheelHandler });
       }
       // Retry for refs that haven't connected yet
       if (pending > 0) {
@@ -915,6 +936,9 @@ export function TerminalView({ onBack }: Props) {
       cancelled = true;
       for (const { el, handler } of focusHandlers) {
         el.removeEventListener('focusin', handler);
+      }
+      for (const { el, handler } of wheelHandlers) {
+        el.removeEventListener('wheel', handler);
       }
     };
   }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
