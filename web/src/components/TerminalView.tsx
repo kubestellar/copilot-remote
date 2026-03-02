@@ -227,20 +227,17 @@ export function TerminalView({ onBack }: Props) {
     term.element?.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // Clipboard: Cmd/Ctrl+C (copy), Cmd/Ctrl+V (paste), Cmd/Ctrl+X (cut), Cmd/Ctrl+A (select all)
+    // Returning false tells xterm to skip processing (won't send control chars to PTY)
+    // but does NOT preventDefault, so the browser's native clipboard events still fire.
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       if (e.type !== 'keydown') return true;
       const isMac = navigator.platform.startsWith('Mac');
       const mod = isMac ? e.metaKey : e.ctrlKey;
       if (!mod) return true;
 
-      // Paste: read system clipboard and send to terminal via WebSocket
-      if (e.key === 'v') {
-        navigator.clipboard.readText().then(text => {
-          if (text && ws.readyState === WebSocket.OPEN) ws.send(text);
-        }).catch(() => {});
-        return false;
-      }
-      // Copy / Cut: copy selected text to system clipboard
+      // Paste: let browser handle natively (fires paste event → xterm processes it)
+      if (e.key === 'v') return false;
+      // Copy / Cut: copy xterm selection to system clipboard
       if ((e.key === 'c' || e.key === 'x') && term.hasSelection()) {
         navigator.clipboard.writeText(term.getSelection()).catch(() => {});
         return false;
