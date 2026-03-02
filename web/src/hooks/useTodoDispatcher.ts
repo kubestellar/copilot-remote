@@ -22,7 +22,7 @@ const SERVER_POLL_INTERVAL_MS = 5_000;
  *  keystroke as a separate PTY write so it isn't swallowed as part of
  *  the pasted text buffer.  Longer commands need more time for tmux
  *  to finish processing the paste before receiving the Enter. */
-const DISPATCH_ENTER_DELAY_MS = 200;
+const DISPATCH_ENTER_DELAY_MS = 500;
 
 /** Generate a unique todo item ID */
 function generateTodoId(): string {
