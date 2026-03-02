@@ -26,10 +26,37 @@ tileXtermStyles.textContent = `
     pointer-events: none; z-index: 10; text-shadow: 0 0 8px rgba(0,0,0,0.8);
     background: rgba(13, 17, 23, 0.7); padding: 8px 16px; border-radius: 6px;
   }
+  .copy-toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: rgba(30, 37, 46, 0.85); color: #8b949e; font-size: 11px;
+    padding: 4px 12px; border-radius: 4px; pointer-events: none; z-index: 9999;
+    opacity: 0; transition: opacity 0.2s, transform 0.2s;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .copy-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 `;
 if (!document.head.querySelector('[data-tile-xterm]')) {
   tileXtermStyles.setAttribute('data-tile-xterm', '');
   document.head.appendChild(tileXtermStyles);
+}
+
+/** Last text copied via OSC 52 — fallback for clipboard API failures */
+let _lastOsc52Text = '';
+
+/** Show a subtle toast when text is copied */
+function showCopyToast(text: string) {
+  let el = document.getElementById('copy-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'copy-toast';
+    el.className = 'copy-toast';
+    document.body.appendChild(el);
+  }
+  const preview = text.length > 30 ? text.slice(0, 30) + '…' : text;
+  el.textContent = `Copied: ${preview.replace(/\n/g, '↵')}`;
+  el.classList.add('show');
+  clearTimeout((el as any)._timer);
+  (el as any)._timer = setTimeout(() => el!.classList.remove('show'), 1500);
 }
 
 interface TermTab {
@@ -294,6 +321,21 @@ export function TerminalView({ onBack }: Props) {
           return;
         }
       } catch (_parseErr) { /* raw terminal data */ }
+      // Intercept OSC 52 clipboard sequences from tmux
+      if (typeof e.data === 'string') {
+        const osc52Re = /\x1b\]52;([^;]*);([^\x07\x1b]*?)(?:\x07|\x1b\\)/g;
+        let match;
+        while ((match = osc52Re.exec(e.data)) !== null) {
+          try {
+            const decoded = atob(match[2]);
+            if (decoded.trim()) {
+              _lastOsc52Text = decoded;
+              showCopyToast(decoded);
+              navigator.clipboard.writeText(decoded).catch(() => {});
+            }
+          } catch {}
+        }
+      }
       term.write(e.data);
     };
 

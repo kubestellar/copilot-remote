@@ -49,6 +49,8 @@ class TerminalManager extends EventEmitter {
       try {
         execSync(`${TMUX_PATH} set-option -g window-size latest`, { stdio: 'ignore' });
         execSync(`${TMUX_PATH} set-option -g aggressive-resize on`, { stdio: 'ignore' });
+        execSync(`${TMUX_PATH} set-option -g set-clipboard on`, { stdio: 'ignore' });
+        execSync(`${TMUX_PATH} set-option -g allow-passthrough on`, { stdio: 'ignore' });
         execSync(`${TMUX_PATH} set-hook -g session-created 'set-option window-size latest'`, { stdio: 'ignore' });
         execSync(`${TMUX_PATH} set-hook -g client-attached 'set-option window-size latest'`, { stdio: 'ignore' });
       } catch {}
@@ -69,6 +71,7 @@ class TerminalManager extends EventEmitter {
       term = pty.spawn(TMUX_PATH, [
         'new-session', '-s', tmuxName, '-x', '80', '-y', '24',
         ';', 'set', 'mouse', 'on',
+        ';', 'set', 'set-clipboard', 'on',
         ';', 'set', 'window-size', 'latest',
         ';', 'set', 'aggressive-resize', 'on',
       ], {
@@ -141,10 +144,12 @@ class TerminalManager extends EventEmitter {
     try {
       execSync(`${TMUX_PATH} set-option -t "${tmuxSession}" window-size latest`, { stdio: 'ignore' });
       execSync(`${TMUX_PATH} set-option -t "${tmuxSession}" mouse on`, { stdio: 'ignore' });
+      execSync(`${TMUX_PATH} set-option -t "${tmuxSession}" set-clipboard on`, { stdio: 'ignore' });
     } catch {}
     const term = pty.spawn(TMUX_PATH, [
       'new-session', '-s', groupName, '-t', tmuxSession,
       ';', 'set', 'mouse', 'on',
+      ';', 'set', 'set-clipboard', 'on',
       ';', 'set', 'window-size', 'latest',
       ';', 'set', 'aggressive-resize', 'on',
     ], {
