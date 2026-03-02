@@ -933,10 +933,15 @@ export function TerminalView({ onBack }: Props) {
       if (!tileMode) {
         setFocusedTileId(null);
         for (const [, inst] of termInstances) {
+          // Remove CSS scaling applied in tile mode
+          if (inst.term.element) {
+            inst.term.element.style.transform = '';
+            inst.term.element.style.transformOrigin = '';
+          }
           if (inst.term.options.fontSize !== 14) {
             inst.term.options.fontSize = 14;
-            try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
           }
+          try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
         }
       }
       return;
@@ -955,6 +960,22 @@ export function TerminalView({ onBack }: Props) {
         return checked[0].id;
       });
     }
+    // Scale a terminal element to fit its tile container using CSS transform.
+    // This preserves content (no internal resize) while visually fitting the tile.
+    const applyTileScale = (inst: typeof termInstances extends Map<string, infer V> ? V : never, container: HTMLElement) => {
+      const termEl = inst.term.element;
+      if (!termEl) return;
+      // Temporarily remove scale to measure natural size
+      termEl.style.transform = '';
+      termEl.style.transformOrigin = 'top left';
+      const termW = termEl.scrollWidth || termEl.offsetWidth;
+      const termH = termEl.scrollHeight || termEl.offsetHeight;
+      const containerW = container.clientWidth;
+      const containerH = container.clientHeight;
+      if (termW <= 0 || termH <= 0 || containerW <= 0 || containerH <= 0) return;
+      const scale = Math.min(containerW / termW, containerH / termH, 1);
+      termEl.style.transform = `scale(${scale})`;
+    };
     const mountTiles = () => {
       if (cancelled) return;
       suppressPtyResize = true; // don't send resize to PTY while rearranging tiles
@@ -967,10 +988,14 @@ export function TerminalView({ onBack }: Props) {
         }
         const inst = termInstances.get(tab.id);
         if (inst) {
-          if (inst.term.element?.parentElement === el) continue;
-          // Move terminal element to tile container
-          // Note: term.open() can only be called once; use appendChild to move
-          inst.term.options.fontSize = tileFontSize;
+          if (inst.term.element?.parentElement === el) {
+            // Already in this container — just update CSS scaling
+            applyTileScale(inst, el);
+            continue;
+          }
+          // Move terminal element to tile container — keep original size, use CSS scale
+          // DON'T change fontSize or call fitAddon.fit() — alternate screen buffers
+          // lose content when xterm.js resizes internally
           el.innerHTML = '';
           if (inst.term.element) {
             el.appendChild(inst.term.element);
@@ -978,7 +1003,7 @@ export function TerminalView({ onBack }: Props) {
             inst.term.open(el);
           }
           inst.container = el;
-          try { inst.fitAddon.fit(); inst.term.scrollToBottom(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
+          inst.term.scrollToBottom();
         } else {
           createTermConnection(tab.id, el, tileFontSize);
         }
@@ -1013,24 +1038,20 @@ export function TerminalView({ onBack }: Props) {
       if (pending > 0) {
         setTimeout(() => { if (!cancelled) mountTiles(); }, 100);
       }
-      // Fit & redraw all terminals after browser layout resolves (double-rAF avoids jitter)
+      // Apply CSS scaling after browser layout resolves (double-rAF for accuracy)
       requestAnimationFrame(() => {
         if (cancelled) return;
         requestAnimationFrame(() => {
           if (cancelled) return;
           for (const tab of checked) {
             const inst = termInstances.get(tab.id);
-            if (inst) try { inst.fitAddon.fit(); inst.term.refresh(0, inst.term.rows - 1); inst.term.scrollToBottom(); } catch {}
-          }
-          // Re-enable PTY resize and send resize ONLY for the focused tile
-          suppressPtyResize = false;
-          const focusId = focusedTileIdRef.current || activeTabIdRef.current;
-          if (focusId) {
-            const focusInst = termInstances.get(focusId);
-            if (focusInst?.ws?.readyState === WebSocket.OPEN) {
-              focusInst.ws.send(JSON.stringify({ type: 'resize', cols: focusInst.term.cols, rows: focusInst.term.rows }));
+            const el = tileContainerRefs.current.get(tab.id);
+            if (inst && el) {
+              applyTileScale(inst, el);
+              inst.term.refresh(0, inst.term.rows - 1);
             }
           }
+          suppressPtyResize = false;
         });
       });
     };
