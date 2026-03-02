@@ -77,6 +77,7 @@ const termInstances = new Map<string, {
   container: HTMLDivElement | null;
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  throttler: WriteThrottler;
 }>();
 
 function getServerUrls() {
@@ -156,6 +157,50 @@ function saveCheckedSessions(tabs: TermTab[]) {
   localStorage.setItem(CHECKED_TILES_KEY, JSON.stringify(checked));
 }
 
+/**
+ * Batches rapid terminal output to prevent "rocket scroll" from agent CLIs.
+ * When output arrives faster than FLUSH_INTERVAL, chunks are queued and
+ * flushed at a steady rate so the UI stays smooth.
+ */
+class WriteThrottler {
+  private queue = '';
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly FLUSH_INTERVAL = 16; // ~60fps
+  private static readonly BURST_THRESHOLD = 4096; // bytes in queue to start batching
+
+  constructor(private term: Terminal) {}
+
+  write(data: string) {
+    this.queue += data;
+    if (!this.timer) {
+      // If queue is small, write immediately for low-latency feel
+      if (this.queue.length < WriteThrottler.BURST_THRESHOLD) {
+        this.flush();
+      } else {
+        this.timer = setTimeout(() => this.flush(), WriteThrottler.FLUSH_INTERVAL);
+      }
+    }
+  }
+
+  private flush() {
+    this.timer = null;
+    if (this.queue) {
+      const data = this.queue;
+      this.queue = '';
+      this.term.write(data);
+      // If more data accumulated during write, schedule next flush
+      if (this.queue) {
+        this.timer = setTimeout(() => this.flush(), WriteThrottler.FLUSH_INTERVAL);
+      }
+    }
+  }
+
+  dispose() {
+    if (this.timer) clearTimeout(this.timer);
+    if (this.queue) { this.term.write(this.queue); this.queue = ''; }
+  }
+}
+
 const TERM_OPTS: NonNullable<ConstructorParameters<typeof Terminal>[0]> = {
   cursorBlink: true,
   fontSize: 14,
@@ -194,6 +239,8 @@ export function TerminalView({ onBack }: Props) {
   const intentRef = useRef<Map<string, string>>(new Map());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
 
   // Persist tile mode and checked tiles to localStorage
   useEffect(() => {
@@ -295,7 +342,8 @@ export function TerminalView({ onBack }: Props) {
     });
 
     const ws = new WebSocket(`${wsUrl}/ws/terminal?token=${token}&id=${tabId}`);
-    const inst = { term, fitAddon, ws, connected: false, container, reconnectAttempts: 0, reconnectTimer: null as ReturnType<typeof setTimeout> | null };
+    const throttler = new WriteThrottler(term);
+    const inst = { term, fitAddon, ws, connected: false, container, reconnectAttempts: 0, reconnectTimer: null as ReturnType<typeof setTimeout> | null, throttler };
     termInstances.set(tabId, inst);
 
     ws.onopen = () => {
@@ -346,7 +394,7 @@ export function TerminalView({ onBack }: Props) {
           } catch {}
         }
       }
-      term.write(e.data);
+      throttler.write(e.data);
     };
 
     ws.onclose = () => {
@@ -418,6 +466,7 @@ export function TerminalView({ onBack }: Props) {
       if (inst) {
         inst.ws?.close();
         inst.term?.dispose();
+        inst.throttler?.dispose();
         if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
         termInstances.delete(tabId);
       }
@@ -602,6 +651,7 @@ export function TerminalView({ onBack }: Props) {
       inst.reconnectAttempts = 999; // prevent reconnect on close
       inst.ws?.close();
       inst.term?.dispose();
+      inst.throttler?.dispose();
       termInstances.delete(id);
     }
     fetch(`${serverUrl}/api/terminals/${id}`, {
@@ -721,6 +771,7 @@ export function TerminalView({ onBack }: Props) {
       for (const [, inst] of termInstances) {
         if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
         inst.ws?.close();
+        inst.throttler?.dispose();
         inst.term?.dispose();
       }
       termInstances.clear();
@@ -799,11 +850,21 @@ export function TerminalView({ onBack }: Props) {
 
   // Prevent wheel events on single-mode terminal containers from scrolling the page
   // Must use native addEventListener with { passive: false } to allow preventDefault
+  // Use capture phase + throttle to tame macOS trackpad momentum (rocket scroll)
   useEffect(() => {
-    const handler = (e: WheelEvent) => { e.preventDefault(); };
+    let lastWheel = 0;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const now = performance.now();
+      if (now - lastWheel < 32) { // cap ~30 events/sec — smooth but no rocket scroll
+        e.stopImmediatePropagation();
+        return;
+      }
+      lastWheel = now;
+    };
     const attached: HTMLElement[] = [];
     for (const [, el] of singleContainerRefs.current) {
-      el.addEventListener('wheel', handler, { passive: false });
+      el.addEventListener('wheel', handler, { capture: true, passive: false });
       attached.push(el);
     }
     return () => {
@@ -877,6 +938,17 @@ export function TerminalView({ onBack }: Props) {
     let cancelled = false;
     const focusHandlers: Array<{ el: HTMLElement; handler: () => void }> = [];
     const wheelHandlers: Array<{ el: HTMLElement; handler: (e: WheelEvent) => void }> = [];
+    // Auto-set focused tile when entering tile mode — prefer the restored activeTabId
+    const checked = tabsRef.current.filter(t => t.checked);
+    if (checked.length > 0) {
+      setFocusedTileId(prev => {
+        if (prev && checked.some(t => t.id === prev)) return prev;
+        // Prefer activeTabId so focused tile matches the highlighted tab after restore
+        const active = activeTabIdRef.current;
+        if (active && checked.some(t => t.id === active)) return active;
+        return checked[0].id;
+      });
+    }
     const mountTiles = () => {
       if (cancelled) return;
       const checked = tabsRef.current.filter(t => t.checked);
@@ -907,9 +979,19 @@ export function TerminalView({ onBack }: Props) {
         const focusHandler = () => { if (!cancelled) setFocusedTileId(tab.id); };
         el.addEventListener('focusin', focusHandler);
         focusHandlers.push({ el, handler: focusHandler });
-        // Capture wheel events so they go to xterm/tmux instead of scrolling the page
-        const wheelHandler = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
-        el.addEventListener('wheel', wheelHandler, { passive: false });
+        // Capture wheel events — throttle to prevent macOS trackpad rocket scroll
+        let lastTileWheel = 0;
+        const wheelHandler = (e: WheelEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const now = performance.now();
+          if (now - lastTileWheel < 32) {
+            e.stopImmediatePropagation();
+            return;
+          }
+          lastTileWheel = now;
+        };
+        el.addEventListener('wheel', wheelHandler, { capture: true, passive: false });
         wheelHandlers.push({ el, handler: wheelHandler });
       }
       // Retry for refs that haven't connected yet
@@ -1110,6 +1192,7 @@ export function TerminalView({ onBack }: Props) {
             const inst = termInstances.get(tab.id);
             const isConnected = inst?.connected ?? false;
             const hasConnected = !!inst; // true if WS was ever created
+            const isActive = tab.id === activeTabId;
             return (
               <Box
                 key={tab.id}
@@ -1119,10 +1202,10 @@ export function TerminalView({ onBack }: Props) {
                   px: 2, py: '5px',
                   cursor: 'pointer',
                   borderRight: '1px solid', borderColor: 'border.muted',
-                  bg: !tileMode && tab.id === activeTabId ? '#1f6feb' : (tileMode && tab.id === focusedTileId ? '#1f6feb' : 'transparent'),
-                  color: (!tileMode && tab.id === activeTabId) || (tileMode && tab.id === focusedTileId) ? '#ffffff' : 'fg.default',
-                  boxShadow: (!tileMode && tab.id === activeTabId) || (tileMode && tab.id === focusedTileId) ? 'inset 0 -3px 0 #58a6ff' : 'none',
-                  ':hover': { bg: 'canvas.default' },
+                  bg: isActive ? '#1f6feb' : 'transparent',
+                  color: isActive ? '#ffffff' : 'fg.default',
+                  boxShadow: isActive ? 'inset 0 -3px 0 #58a6ff' : 'none',
+                  ':hover': { bg: isActive ? '#1f6feb' : 'canvas.default' },
                   maxWidth: 500, minWidth: 150, flexShrink: 0,
                 }}
                 onClick={() => { setActiveTabId(tab.id); if (tileMode) { setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } }}
