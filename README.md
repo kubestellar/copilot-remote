@@ -192,7 +192,7 @@ Tap **+ New**, enter a prompt like `"Fix the failing tests in src/"`, optionally
 
 ### 5. Use the Todo Queue
 
-Switch to the **Bidirectional** tab, open some terminals, and toggle **Todo Mode** on. Now you can:
+Switch to the **Terminals** tab (it opens by default), and toggle **Todo Mode** on. Now you can:
 
 1. **Add tasks** — Type commands in the input box at the bottom of the todo panel and hit Enter
 2. **Watch them run** — Tasks auto-dispatch to idle terminals and show "running in: tab-name" while they execute

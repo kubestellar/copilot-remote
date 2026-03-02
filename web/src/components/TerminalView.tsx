@@ -1139,7 +1139,7 @@ export function TerminalView({ onBack }: Props) {
           </button>
           <ActionMenu>
             <ActionMenu.Anchor>
-              <IconButton icon={LinkIcon} aria-label="Attach tmux session (⌘⇧L)" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
+              <IconButton icon={LinkIcon} aria-label="Attach tmux session (⌘⇧L)" title="Attach tmux session (⌘⇧L)" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
             </ActionMenu.Anchor>
             <ActionMenu.Overlay sx={{ bg: 'canvas.overlay', borderColor: 'border.default', boxShadow: 'shadow.large' }}>
               <ActionList sx={{ bg: 'canvas.overlay' }}>
@@ -1169,7 +1169,7 @@ export function TerminalView({ onBack }: Props) {
           </ActionMenu>
           <ActionMenu>
             <ActionMenu.Anchor>
-              <IconButton icon={PlusIcon} aria-label="New terminal (⌘⇧N)" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'success.fg' }} />
+              <IconButton icon={PlusIcon} aria-label="New terminal (⌘⇧N)" title="New terminal (⌘⇧N)" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'success.fg' }} />
             </ActionMenu.Anchor>
             <ActionMenu.Overlay sx={{ bg: 'canvas.overlay', borderColor: 'border.default', boxShadow: 'shadow.large' }}>
               <ActionList sx={{ bg: 'canvas.overlay' }}>
