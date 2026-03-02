@@ -479,41 +479,41 @@ export default function TodoPanel({
                       disabled={idx === 0}
                       onClick={() => onReorderItem(item.id, 'up')}
                     >
-                      <ChevronUpIcon size={10} />
+                      <ChevronUpIcon size={14} />
                     </ActionButton>
                     <ActionButton
                       title="Move down"
                       disabled={idx === items.length - 1}
                       onClick={() => onReorderItem(item.id, 'down')}
                     >
-                      <ChevronDownIcon size={10} />
+                      <ChevronDownIcon size={14} />
                     </ActionButton>
                   </>
                 )}
                 {item.status === 'pending' && (item.nextRunAt || item.paused) && (
                   <ActionButton title="Run now" onClick={() => onRunNow(item.id)}>
-                    <PlayIcon size={10} />
+                    <PlayIcon size={14} />
                   </ActionButton>
                 )}
                 {(item.status === 'failed' || item.status === 'done') && (
                   <ActionButton title="Re-run" onClick={() => onRetryItem(item.id)}>
-                    <SyncIcon size={10} />
+                    <SyncIcon size={14} />
                   </ActionButton>
                 )}
                 {item.recurring ? (
                   <ActionButton title="Stop recurring" onClick={() => onStopRecurring(item.id)}>
-                    <StopIcon size={10} />
+                    <StopIcon size={14} />
                   </ActionButton>
                 ) : item.status !== 'running' && (
                   <ActionButton
                     title="Set schedule"
                     onClick={() => setSchedulingItemId(prev => prev === item.id ? null : item.id)}
                   >
-                    <ClockIcon size={10} />
+                    <ClockIcon size={14} />
                   </ActionButton>
                 )}
                 <ActionButton title="Remove" onClick={() => onRemoveItem(item.id)} danger>
-                  <XIcon size={10} />
+                  <XIcon size={14} />
                 </ActionButton>
               </Box>
               {/* Inline schedule picker */}
@@ -627,9 +627,9 @@ function ActionButton({
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: 18,
-        height: 18,
-        borderRadius: 3,
+        width: 24,
+        height: 24,
+        borderRadius: 4,
         border: 'none',
         background: 'transparent',
         color: danger ? 'var(--fgColor-danger, #f85149)' : 'var(--fgColor-muted, #8b949e)',
