@@ -114,7 +114,7 @@ export default function TodoPanel({
   onReorderItem,
 }: TodoPanelProps) {
   const [inputValue, setInputValue] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastEscRef = useRef(0);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -199,7 +199,7 @@ export default function TodoPanel({
   }, [inputValue, onAddItem, recurringEnabled, selectedInterval]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     } else if (e.key === 'Escape') {
@@ -306,14 +306,19 @@ export default function TodoPanel({
 
       {/* Input */}
       <Box sx={{ px: 2, py: 2, borderBottom: '1px solid', borderColor: 'border.muted', flexShrink: 0 }}>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          <input
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+          <textarea
             ref={inputRef}
-            type="text"
-            placeholder="Add command..."
+            placeholder="Add command... (Shift+Enter for newline)"
             value={inputValue}
-            onChange={e => setInputValue(e.target.value.slice(0, TODO_INPUT_MAX_LENGTH))}
+            onChange={e => {
+              setInputValue(e.target.value.slice(0, TODO_INPUT_MAX_LENGTH));
+              // Auto-grow: reset then set to scrollHeight
+              e.target.style.height = 'auto';
+              e.target.style.height = `${e.target.scrollHeight}px`;
+            }}
             onKeyDown={handleKeyDown}
+            rows={1}
             style={{
               flex: 1,
               padding: '6px 8px',
@@ -326,6 +331,9 @@ export default function TodoPanel({
               outline: 'none',
               boxSizing: 'border-box',
               minWidth: 0,
+              resize: 'none',
+              overflow: 'hidden',
+              lineHeight: '1.4',
             }}
           />
           {/* Recurring toggle */}
@@ -453,12 +461,17 @@ export default function TodoPanel({
               {/* Content */}
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 {editingItemId === item.id ? (
-                  <input
+                  <textarea
                     autoFocus
                     value={editingValue}
-                    onChange={e => setEditingValue(e.target.value)}
+                    onChange={e => {
+                      setEditingValue(e.target.value);
+                      e.target.style.height = 'auto';
+                      e.target.style.height = `${e.target.scrollHeight}px`;
+                    }}
                     onKeyDown={e => {
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
                         const trimmed = editingValue.trim();
                         if (trimmed) onUpdateItemText(item.id, trimmed);
                         setEditingItemId(null);
@@ -472,10 +485,15 @@ export default function TodoPanel({
                       if (trimmed) onUpdateItemText(item.id, trimmed);
                       setEditingItemId(null);
                     }}
+                    ref={el => {
+                      if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; }
+                    }}
+                    rows={1}
                     style={{
                       fontSize: '11px', fontFamily: 'monospace', background: 'var(--bgColor-default, #0d1117)',
                       color: 'var(--fgColor-default, #e6edf3)', border: '1px solid var(--borderColor-accent-emphasis, #58a6ff)',
                       borderRadius: 4, padding: '2px 4px', width: '100%', outline: 'none',
+                      resize: 'none', overflow: 'hidden', lineHeight: '1.4', boxSizing: 'border-box',
                     }}
                   />
                 ) : (
