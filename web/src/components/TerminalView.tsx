@@ -859,6 +859,41 @@ export function TerminalView({ onBack }: Props) {
     };
   }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Document-level paste handler: catches Cmd/Ctrl+V paste events and sends
+  // clipboard text to the focused terminal's WebSocket. This is more reliable
+  // than relying on xterm's internal textarea paste, especially when terminals
+  // are moved between DOM containers (single ↔ tile mode).
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text');
+      if (!text) return;
+      // Find the active terminal: in tile mode use focusedTileId, else activeTabId
+      const targetId = tileMode ? (focusedTileId || activeTabId) : activeTabId;
+      if (!targetId) return;
+      const inst = termInstances.get(targetId);
+      if (inst && inst.ws.readyState === WebSocket.OPEN) {
+        e.preventDefault();
+        inst.ws.send(text);
+      }
+    };
+    const onCopy = (e: ClipboardEvent) => {
+      // If any terminal has a selection, copy it to clipboard
+      for (const [, inst] of termInstances) {
+        if (inst.term.hasSelection()) {
+          e.preventDefault();
+          e.clipboardData?.setData('text/plain', inst.term.getSelection());
+          return;
+        }
+      }
+    };
+    document.addEventListener('paste', onPaste);
+    document.addEventListener('copy', onCopy);
+    return () => {
+      document.removeEventListener('paste', onPaste);
+      document.removeEventListener('copy', onCopy);
+    };
+  }, [tileMode, focusedTileId, activeTabId]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
