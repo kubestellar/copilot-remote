@@ -318,7 +318,7 @@ export default function TodoPanel({
               e.target.style.height = `${e.target.scrollHeight}px`;
             }}
             onKeyDown={handleKeyDown}
-            rows={1}
+            rows={3}
             style={{
               flex: 1,
               padding: '6px 8px',
