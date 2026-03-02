@@ -225,6 +225,27 @@ export function TerminalView({ onBack }: Props) {
     term.open(container);
     // Suppress browser context menu so tmux right-click menus work
     term.element?.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Enable Ctrl+C (copy when selected), Ctrl+V (paste), Ctrl+X (cut/copy) via system clipboard
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.type !== 'keydown') return true;
+      const isMac = navigator.platform.startsWith('Mac');
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (!mod) return true;
+
+      if (e.key === 'v') {
+        navigator.clipboard.readText().then(text => {
+          if (text && ws.readyState === WebSocket.OPEN) ws.send(text);
+        }).catch(() => {});
+        return false; // prevent xterm default
+      }
+      if ((e.key === 'c' || e.key === 'x') && term.hasSelection()) {
+        navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+        return false;
+      }
+      return true;
+    });
+
     // Fit after layout is computed: rAF ensures DOM layout, then fit
     requestAnimationFrame(() => {
       try { fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
