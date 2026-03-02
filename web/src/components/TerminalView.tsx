@@ -296,6 +296,15 @@ export function TerminalView({ onBack }: Props) {
       }
     };
 
+    // Let the browser handle Cmd+C/V/X/A (copy/paste/cut/select-all) natively
+    // instead of xterm sending them as control characters to the PTY
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      const isMac = navigator.platform.startsWith('Mac');
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (mod && ['c', 'v', 'x', 'a'].includes(e.key)) return false;
+      return true;
+    });
+
     term.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);
     });
