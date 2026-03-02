@@ -24,6 +24,9 @@ const TODO_INPUT_MAX_LENGTH = 500;
 /** Interval (ms) to update countdown timers in the UI */
 const COUNTDOWN_REFRESH_INTERVAL_MS = 1000;
 
+/** Max milliseconds between two Escape presses to trigger clear */
+const DOUBLE_ESC_THRESHOLD_MS = 500;
+
 /** Preset interval options for recurring items */
 const RECURRING_PRESETS = [
   { label: '5m', ms: 300_000 },
@@ -88,6 +91,7 @@ interface TodoPanelProps {
   onStopRecurring: (id: string) => void;
   onSetRecurring: (id: string, intervalMs: number) => void;
   onRunNow: (id: string) => void;
+  onUpdateItemText: (id: string, description: string) => void;
   onToggleTodoMode: () => void;
   onClearCompleted: () => void;
   onReorderItem: (id: string, direction: 'up' | 'down') => void;
@@ -104,12 +108,16 @@ export default function TodoPanel({
   onStopRecurring,
   onSetRecurring,
   onRunNow,
+  onUpdateItemText,
   onToggleTodoMode,
   onClearCompleted,
   onReorderItem,
 }: TodoPanelProps) {
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastEscRef = useRef(0);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
 
   // Track which item's schedule picker is open (null = none)
   const [schedulingItemId, setSchedulingItemId] = useState<string | null>(null);
@@ -194,6 +202,14 @@ export default function TodoPanel({
     if (e.key === 'Enter') {
       e.preventDefault();
       handleSubmit();
+    } else if (e.key === 'Escape') {
+      const now = Date.now();
+      if (now - lastEscRef.current < DOUBLE_ESC_THRESHOLD_MS) {
+        setInputValue('');
+        lastEscRef.current = 0;
+      } else {
+        lastEscRef.current = now;
+      }
     }
     // Prevent terminal from capturing keystrokes
     e.stopPropagation();
@@ -436,18 +452,49 @@ export default function TodoPanel({
 
               {/* Content */}
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Text
-                  sx={{
-                    fontSize: '11px',
-                    fontFamily: 'mono',
-                    color: item.status === 'done' && !item.recurring ? 'fg.muted' : 'fg.default',
-                    textDecoration: item.status === 'done' && !item.recurring ? 'line-through' : 'none',
-                    wordBreak: 'break-all',
-                    display: 'block',
-                  }}
-                >
-                  {item.description}
-                </Text>
+                {editingItemId === item.id ? (
+                  <input
+                    autoFocus
+                    value={editingValue}
+                    onChange={e => setEditingValue(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        const trimmed = editingValue.trim();
+                        if (trimmed) onUpdateItemText(item.id, trimmed);
+                        setEditingItemId(null);
+                      } else if (e.key === 'Escape') {
+                        setEditingItemId(null);
+                      }
+                      e.stopPropagation();
+                    }}
+                    onBlur={() => {
+                      const trimmed = editingValue.trim();
+                      if (trimmed) onUpdateItemText(item.id, trimmed);
+                      setEditingItemId(null);
+                    }}
+                    style={{
+                      fontSize: '11px', fontFamily: 'monospace', background: 'var(--bgColor-default, #0d1117)',
+                      color: 'var(--fgColor-default, #e6edf3)', border: '1px solid var(--borderColor-accent-emphasis, #58a6ff)',
+                      borderRadius: 4, padding: '2px 4px', width: '100%', outline: 'none',
+                    }}
+                  />
+                ) : (
+                  <Text
+                    onDoubleClick={() => { setEditingItemId(item.id); setEditingValue(item.description); }}
+                    title="Double-click to edit"
+                    sx={{
+                      fontSize: '11px',
+                      fontFamily: 'mono',
+                      color: item.status === 'done' && !item.recurring ? 'fg.muted' : 'fg.default',
+                      textDecoration: item.status === 'done' && !item.recurring ? 'line-through' : 'none',
+                      wordBreak: 'break-all',
+                      display: 'block',
+                      cursor: 'text',
+                    }}
+                  >
+                    {item.description}
+                  </Text>
+                )}
                 {item.status === 'running' && item.assignedTileName && (
                   <Text sx={{ fontSize: '9px', color: 'attention.fg', mt: '2px', display: 'block' }}>
                     running in tab named: {item.assignedTileName}

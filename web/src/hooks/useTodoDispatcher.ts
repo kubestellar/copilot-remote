@@ -62,6 +62,7 @@ export interface TodoDispatcher {
   stopRecurring: (id: string) => void;
   setRecurring: (id: string, intervalMs: number) => void;
   runNow: (id: string) => void;
+  updateItemText: (id: string, description: string) => void;
   toggleTodoMode: () => void;
   clearCompleted: () => void;
   reorderItem: (id: string, direction: 'up' | 'down') => void;
@@ -405,6 +406,11 @@ export function useTodoDispatcher(
     ));
   }, []);
 
+  /** Update the description text of a todo item */
+  const updateItemText = useCallback((id: string, description: string) => {
+    setItems(prev => prev.map(i => i.id === id ? { ...i, description } : i));
+  }, []);
+
   return {
     items,
     todoMode,
@@ -417,6 +423,7 @@ export function useTodoDispatcher(
     toggleTodoMode,
     clearCompleted,
     reorderItem,
+    updateItemText,
     onTilePromptReturned,
     onTileDisconnected,
   };

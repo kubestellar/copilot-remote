@@ -13,11 +13,15 @@ interface Props {
   onBack?: () => void;
 }
 
+/** Max milliseconds between two Escape presses to trigger clear */
+const DOUBLE_ESC_THRESHOLD_MS = 500;
+
 export function ChatView({ session, messages, onSend, onResume, onBack }: Props) {
   const [input, setInput] = useState('');
   const [historicalMessages, setHistoricalMessages] = useState<ChatMessage[]>([]);
   const [resuming, setResuming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastEscRef = useRef(0);
 
   // Load historical messages when session changes
   useEffect(() => {
@@ -65,6 +69,14 @@ export function ChatView({ session, messages, onSend, onResume, onBack }: Props)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    } else if (e.key === 'Escape') {
+      const now = Date.now();
+      if (now - lastEscRef.current < DOUBLE_ESC_THRESHOLD_MS) {
+        setInput('');
+        lastEscRef.current = 0;
+      } else {
+        lastEscRef.current = now;
+      }
     }
   }, [handleSend]);
 
