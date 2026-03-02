@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Box, Text } from '@primer/react';
-import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon, StopIcon, ClockIcon } from '@primer/octicons-react';
+import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon, StopIcon, ClockIcon, PlayIcon } from '@primer/octicons-react';
 import type { TodoItem } from '../types';
 
 /** Default width of the todo panel in pixels */
@@ -87,6 +87,7 @@ interface TodoPanelProps {
   onRetryItem: (id: string) => void;
   onStopRecurring: (id: string) => void;
   onSetRecurring: (id: string, intervalMs: number) => void;
+  onRunNow: (id: string) => void;
   onToggleTodoMode: () => void;
   onClearCompleted: () => void;
   onReorderItem: (id: string, direction: 'up' | 'down') => void;
@@ -102,6 +103,7 @@ export default function TodoPanel({
   onRetryItem,
   onStopRecurring,
   onSetRecurring,
+  onRunNow,
   onToggleTodoMode,
   onClearCompleted,
   onReorderItem,
@@ -487,6 +489,11 @@ export default function TodoPanel({
                       <ChevronDownIcon size={10} />
                     </ActionButton>
                   </>
+                )}
+                {item.status === 'pending' && (item.nextRunAt || item.paused) && (
+                  <ActionButton title="Run now" onClick={() => onRunNow(item.id)}>
+                    <PlayIcon size={10} />
+                  </ActionButton>
                 )}
                 {(item.status === 'failed' || item.status === 'done') && (
                   <ActionButton title="Re-run" onClick={() => onRetryItem(item.id)}>

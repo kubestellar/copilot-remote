@@ -61,6 +61,7 @@ export interface TodoDispatcher {
   retryItem: (id: string) => void;
   stopRecurring: (id: string) => void;
   setRecurring: (id: string, intervalMs: number) => void;
+  runNow: (id: string) => void;
   toggleTodoMode: () => void;
   clearCompleted: () => void;
   reorderItem: (id: string, direction: 'up' | 'down') => void;
@@ -313,6 +314,16 @@ export function useTodoDispatcher(
     ));
   }, []);
 
+  /** Clear nextRunAt and paused so the item dispatches immediately */
+  const runNow = useCallback((id: string) => {
+    setItems(prev => prev.map(i =>
+      i.id === id
+        ? { ...i, nextRunAt: null, paused: false }
+        : i
+    ));
+    setTimeout(() => tryDispatchNext(), 0);
+  }, [tryDispatchNext]);
+
   const toggleTodoMode = useCallback(() => {
     setTodoMode(prev => {
       const next = !prev;
@@ -402,6 +413,7 @@ export function useTodoDispatcher(
     retryItem,
     stopRecurring,
     setRecurring,
+    runNow,
     toggleTodoMode,
     clearCompleted,
     reorderItem,

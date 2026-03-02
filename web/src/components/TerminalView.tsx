@@ -1202,11 +1202,18 @@ export function TerminalView({ onBack }: Props) {
           items={todoDispatcher.items}
           todoMode={todoDispatcher.todoMode}
           tabs={tabs}
+          lastCommand={
+            (tileActive
+              ? tabs.find(t => t.id === focusedTileId)?.lastCommand
+              : tabs.find(t => t.id === activeTabId)?.lastCommand
+            ) || undefined
+          }
           onAddItem={todoDispatcher.addItem}
           onRemoveItem={todoDispatcher.removeItem}
           onRetryItem={todoDispatcher.retryItem}
           onStopRecurring={todoDispatcher.stopRecurring}
           onSetRecurring={todoDispatcher.setRecurring}
+          onRunNow={todoDispatcher.runNow}
           onToggleTodoMode={todoDispatcher.toggleTodoMode}
           onClearCompleted={todoDispatcher.clearCompleted}
           onReorderItem={todoDispatcher.reorderItem}
