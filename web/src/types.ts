@@ -39,6 +39,8 @@ export interface TodoItem {
   maxRuns?: number;
   /** ISO timestamp — don't dispatch before this time */
   nextRunAt?: string | null;
+  /** When true, item is parked — auto-dispatch skips it until user schedules or runs it */
+  paused?: boolean;
 }
 
 export interface WsMessage {

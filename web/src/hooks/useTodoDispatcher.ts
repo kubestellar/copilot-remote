@@ -209,9 +209,9 @@ export function useTodoDispatcher(
     if (!todoModeRef.current) return;
 
     const now = Date.now();
-    // Find next pending item that is ready to dispatch (not scheduled for the future)
+    // Find next pending item that is ready to dispatch (not paused, not scheduled for the future)
     const nextPending = itemsRef.current.find(i =>
-      i.status === 'pending' && (!i.nextRunAt || new Date(i.nextRunAt).getTime() <= now)
+      i.status === 'pending' && !i.paused && (!i.nextRunAt || new Date(i.nextRunAt).getTime() <= now)
     );
     if (!nextPending) return;
 
@@ -228,7 +228,7 @@ export function useTodoDispatcher(
 
       const now = Date.now();
       const hasReady = itemsRef.current.some(
-        i => i.status === 'pending' && i.nextRunAt && new Date(i.nextRunAt).getTime() <= now
+        i => i.status === 'pending' && !i.paused && i.nextRunAt && new Date(i.nextRunAt).getTime() <= now
       );
       if (hasReady) {
         tryDispatchNext();
@@ -269,6 +269,7 @@ export function useTodoDispatcher(
       runCount: 0,
       maxRuns: options?.maxRuns ?? 0,
       nextRunAt: null,
+      paused: options?.skipDispatch ?? false,
     };
 
     setItems(prev => {
@@ -288,7 +289,7 @@ export function useTodoDispatcher(
   const retryItem = useCallback((id: string) => {
     setItems(prev => prev.map(i =>
       i.id === id
-        ? { ...i, status: 'pending' as const, assignedTileId: null, assignedTileName: null, startedAt: null, completedAt: null, nextRunAt: null }
+        ? { ...i, status: 'pending' as const, assignedTileId: null, assignedTileName: null, startedAt: null, completedAt: null, nextRunAt: null, paused: false }
         : i
     ));
     setTimeout(() => tryDispatchNext(), 0);
@@ -307,7 +308,7 @@ export function useTodoDispatcher(
   const setRecurring = useCallback((id: string, intervalMs: number) => {
     setItems(prev => prev.map(i =>
       i.id === id
-        ? { ...i, recurring: true, intervalMs, maxRuns: 0 }
+        ? { ...i, recurring: true, intervalMs, maxRuns: 0, paused: false }
         : i
     ));
   }, []);
