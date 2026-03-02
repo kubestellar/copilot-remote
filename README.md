@@ -1,6 +1,6 @@
 # ⚡ Copilot Remote
 
-Control AI coding agents from any device. Manage Copilot CLI and Claude Code sessions, launch tiled web terminals with tmux, and stream real-time output — all from a mobile-friendly interface over your local network.
+Control your AI coding agents from literally anywhere. Manage Copilot CLI and Claude Code sessions, run multiple agents side-by-side in tiled web terminals, queue up tasks and let them auto-dispatch across your agents, drag images straight into terminals, and stream everything in real-time — all from your phone or any browser on your local network.
 
 ## Screenshots
 
@@ -28,24 +28,49 @@ Full-screen terminal view with tab bar, green status dots for connected sessions
 |                     |                         |                         |
 |  Chat UI            |                         |  Spawns AI CLIs         |
 |  Tiled terminals    |                         |  Manages tmux sessions  |
-|  Session list       |                         |  ACP streaming          |
+|  Todo queue         |                         |  ACP streaming          |
 |  Tags / rename      |                         |  Reads ~/.copilot/      |
 +---------------------+                         +-------------------------+
 ```
 
 The **server** runs on your laptop alongside your AI CLI installations (Copilot CLI, Claude Code). It spawns and manages AI processes via ACP streaming, provides interactive web terminals backed by tmux and node-pty, reads historical sessions from `~/.copilot/session-state/`, and streams everything over WebSocket.
 
-The **web app** is a React PWA built with [GitHub Primer](https://primer.style/react/) and xterm.js. It connects to the server over your local network, provides a chat interface with full terminal emulation, tiled multi-terminal layouts, and lets you manage sessions with custom names, tags, and real-time status.
+The **web app** is a React PWA built with [GitHub Primer](https://primer.style/react/) and xterm.js. It connects to the server over your local network, provides a chat interface with full terminal emulation, tiled multi-terminal layouts, a task queue that auto-dispatches work to your agents, and lets you manage sessions with custom names, tags, and real-time status.
 
 ## Features
 
 ### Core
 - **📋 Session Browser** — Lists all AI CLI sessions: running (managed), active (detected via filesystem), and historical (from `~/.copilot/session-state/`)
 - **🚀 Start Sessions** — Launch new Copilot or Claude sessions with a prompt, working directory, or resume an existing session
-- **💬 iMessage-style Chat** — Send messages and see responses as compact chat bubbles with markdown rendering, inline 🤖 icons, and short timestamps
+- **💬 iMessage-style Chat** — Send messages and see responses as compact chat bubbles with markdown rendering, inline icons, and short timestamps
 - **⚡ ACP Streaming** — Real-time streaming via the Agent Client Protocol with persistent `copilot --acp` processes for multi-turn conversations with live text chunks and tool call status
 - **🔄 Resume Sessions** — Pick up where you left off with `--resume <sessionId>`
 - **🗑️ Delete & Purge Sessions** — Hide sessions from the list or permanently delete session files from disk with a confirmation dialog
+
+### Todo Queue (Task Dispatcher)
+
+This is basically a job queue for your AI agents. You add commands, and they get auto-dispatched to whichever terminal is free. It's like having a to-do list that does itself.
+
+- **📝 Task Queue** — Add commands to a shared queue that auto-dispatches to idle terminals as they become available. Toggle it on/off whenever you want
+- **🔁 Recurring Tasks** — Set any task to repeat on a schedule (every 30s, 1min, 5min, etc.). Perfect for things like "check the build" or "run the tests" on a loop
+- **⏱️ Schedule Picker** — Click the clock icon on any task to set it up as recurring with a custom interval. One click to add a schedule, one click to remove it
+- **▶️ Run Now** — Got a scheduled task waiting for its next run? Hit "Run Now" to skip the wait and dispatch it immediately
+- **📋 Queue Last Command** — See something cool running in a terminal? Hit the clipboard button in the tile header to grab whatever command was last sent and add it straight to your queue
+- **✏️ Inline Editing** — Double-click any task description to edit it in place. Full multiline support so you can write big prompts
+- **📏 Resizable Panel** — Drag the left edge of the todo panel to make it wider or narrower. Your preferred width sticks across page refreshes
+- **🔀 Reorder** — Move tasks up and down in the queue with arrow buttons to control what gets dispatched first
+- **🧹 Clear Completed** — One button to clean out all the finished tasks
+- **⏸️ Pause/Resume** — Queued items can be paused so they don't auto-dispatch until you're ready
+- **💀 Kill Running** — Delete a task even while it's running if you change your mind
+
+### Swarm Mode
+
+Want your friends or teammates to add tasks to your queue from their own devices? Swarm mode lets you share access.
+
+- **🔗 Invite Links** — Generate a one-time invite URL that gives someone else access to add tasks to your queue
+- **🔒 Scoped Access** — Invite links only grant todo queue access, not full terminal control. Your terminals stay yours
+- **🌐 Multi-device** — Multiple people can queue tasks simultaneously — the server syncs everything in real-time
+- **📡 Server-synced** — All todo state is synced to the server so tasks added via the API show up instantly in your browser
 
 ### Web Terminals
 - **🖥️ Interactive Terminals** — Full terminal emulation powered by xterm.js and node-pty, with cursor blinking, link detection, and responsive sizing
@@ -59,6 +84,12 @@ The **web app** is a React PWA built with [GitHub Primer](https://primer.style/r
 - **📋 Tmux Copy** — Copy tmux session info from tile headers for easy external attach
 - **⌨️ Keyboard Shortcuts** — Navigate and manage tiles with keyboard shortcuts
 - **🖱️ Right-click Support** — Browser context menu suppressed on terminal so tmux's native right-click menus work
+- **📋 Clipboard Support** — Cmd+C, Cmd+V, Cmd+X, and Cmd+A all work natively in the browser. No more accidentally sending Ctrl-C to your terminal when you just wanted to copy some text
+- **🖼️ Image Drag-and-Drop** — Drag screenshots or images directly onto any terminal tile. The file gets uploaded to the server and the file path gets pasted into the terminal, so your AI agent can actually see and process the image
+- **🏷️ Tab Rename** — Double-click any tab name to rename it. Names persist across browser refreshes and server restarts
+- **🗑️ Tab Terminate** — Click the trash icon on any tab to kill the underlying tmux session. Clean up terminals you're done with without leaving the browser
+- **💡 Last Intent** — Each tile header shows what command was last sent to that terminal, so you can tell at a glance what each agent is working on
+- **💾 State Persistence** — Your tile mode, which tabs are checked, and which tab is active all persist across page refreshes. Come back to exactly where you left off
 
 ### Organization
 - **🏷️ Session Names** — Rename sessions inline with a tap on the pencil icon
@@ -77,6 +108,13 @@ The **web app** is a React PWA built with [GitHub Primer](https://primer.style/r
 - **🔒 Token Auth** — Server generates a random 256-bit token on first run; all API/WebSocket calls require it
 - **🤖 Auto-QA** — GitHub Actions workflow runs hourly quality checks (build, lint, security, a11y, performance) with rotating focus areas
 - **🧹 Session Dedup** — Server prevents duplicate terminal attachments; client cleans up stale terminals on reconnect
+- **🛡️ Error Boundary** — React ErrorBoundary catches render crashes and shows a recovery UI instead of a blank white screen. Your app won't just die on you
+- **♿ Accessibility** — All interactive elements have proper ARIA labels and keyboard equivalents. Screen readers and keyboard-only navigation actually work
+
+### UX Polish
+- **⎋ Double-Escape Clear** — Hit Escape twice quickly to clear whatever you're typing in the chat input or todo input. Way faster than selecting all and deleting
+- **📝 Multiline Inputs** — The todo queue input and inline editor both support multiline text with Shift+Enter. Auto-growing textareas expand as you type so you can see your whole prompt
+- **🔑 Login Instructions** — The login page now shows you exactly where to find your auth token and how to connect, so you don't have to dig through terminal output
 
 ### Performance
 - **⚡ Memoized Rendering** — `React.memo` on MessageBubble and `useMemo` on message arrays prevent re-rendering 500+ messages on every keystroke
@@ -144,21 +182,32 @@ Open `http://<laptop-ip>:5173` on your phone's browser.
 
 ### 3. Connect
 
-On first visit, you'll see a setup screen. Enter:
-- **Auth Token** — the token displayed when the server started
+On first visit, you'll see a setup screen with instructions. Enter:
+- **Auth Token** — the token displayed when the server started (also saved at `~/.copilot-remote/auth-token`)
 - **Server URL** (optional) — only needed if not using the Vite proxy (e.g., `http://192.168.1.100:3001`)
 
 ### 4. Start a session
 
 Tap **+ New**, enter a prompt like `"Fix the failing tests in src/"`, optionally set a working directory, and hit **Create Session**. Copilot starts working and you'll see its output stream in real-time as chat messages.
 
-### 5. Manage sessions
+### 5. Use the Todo Queue
 
-- **Rename** — Tap the ✏️ icon next to any session to set a custom name
-- **Tag** — Tap the 🏷️ icon to add color-coded tags (e.g., `bug`, `feature`, `docs`)
+Switch to the **Bidirectional** tab, open some terminals, and toggle **Todo Mode** on. Now you can:
+
+1. **Add tasks** — Type commands in the input box at the bottom of the todo panel and hit Enter
+2. **Watch them run** — Tasks auto-dispatch to idle terminals and show "running in: tab-name" while they execute
+3. **Set up recurring** — Click the clock icon on any task to make it repeat on a schedule
+4. **Grab last commands** — Click the clipboard icon in a tile header to capture whatever was last sent to that terminal and add it to your queue
+5. **Edit inline** — Double-click any task to modify its text before it runs
+6. **Drag images** — Drop a screenshot onto any terminal to upload it and paste the path
+
+### 6. Manage sessions
+
+- **Rename** — Tap the pencil icon next to any session to set a custom name
+- **Tag** — Tap the tag icon to add color-coded tags (e.g., `bug`, `feature`, `docs`)
 - **Resume** — Tap any ended session and hit **Resume** or type a follow-up message
 
-### 6. Install as PWA
+### 7. Install as PWA
 
 On your phone's browser, tap **Share → Add to Home Screen** (iOS) or the install banner (Android/Chrome). The app runs in standalone mode without browser chrome.
 
@@ -188,14 +237,16 @@ copilot-remote/
 │   │   │   ├── ChatView.tsx        # iMessage-style chat with back navigation
 │   │   │   ├── MessageBubble.tsx   # Memoized message with inline markdown
 │   │   │   ├── TerminalView.tsx    # xterm.js tiled terminal grid with tmux
+│   │   │   ├── TodoPanel.tsx       # Task queue UI with inline edit, recurring
 │   │   │   ├── NewSessionDialog.tsx# Create/resume session form
 │   │   │   └── ConnectionStatus.tsx# Green/red dot indicator
 │   │   ├── hooks/
 │   │   │   ├── useWebSocket.ts     # WS connection with auto-reconnect
-│   │   │   └── useSessions.ts      # Session list polling with pause support
+│   │   │   ├── useSessions.ts      # Session list polling with pause support
+│   │   │   └── useTodoDispatcher.ts# Todo queue state, dispatch, recurring logic
 │   │   ├── lib/
-│   │   │   └── api.ts              # REST client (fetch wrapper)
-│   │   └── types.ts                # Session, ChatMessage interfaces
+│   │   │   └── api.ts              # REST client (fetch wrapper + file upload)
+│   │   └── types.ts                # Session, ChatMessage, TodoItem interfaces
 │   ├── vite.config.ts          # Vite + PWA + proxy config
 │   ├── index.html              # Dark mode data attributes for Primer CSS
 │   ├── package.json
@@ -224,6 +275,9 @@ All endpoints (except health) require `Authorization: Bearer <token>` header.
 | `PATCH` | `/api/sessions/:id/meta` | Update session name `{ name }` |
 | `POST` | `/api/sessions/:id/tags/:tag` | Add a tag to a session |
 | `DELETE` | `/api/sessions/:id/tags/:tag` | Remove a tag from a session |
+| `GET` | `/api/todos` | Get todo queue items and mode state |
+| `POST` | `/api/todos` | Save todo queue state `{ items, todoMode }` |
+| `POST` | `/api/upload` | Upload an image file `{ filename, data (base64), mimeType }` |
 
 ### WebSocket
 
@@ -251,6 +305,7 @@ Connect to `/ws?token=<token>` for real-time streaming.
 **Server data:**
 - `~/.copilot-remote/auth-token` — Auth token (auto-generated, `chmod 600`)
 - `~/.copilot-remote/session-meta.json` — Custom session names and tags
+- `/tmp/copilot-remote-uploads/` — Uploaded images from drag-and-drop
 
 **Session data** is read from `~/.copilot/session-state/` (Copilot CLI's native storage). The server never modifies Copilot's files.
 
@@ -311,6 +366,14 @@ Issues are auto-created in GitHub with labels, reproduction steps, and fix guida
 - [x] Terminal auto-reconnect on server restart
 - [x] Delete sessions from session list
 - [x] Keyboard shortcuts for tile navigation
+- [x] Todo queue with auto-dispatch
+- [x] Recurring tasks with schedule picker
+- [x] Swarm mode for multi-user task queuing
+- [x] Image drag-and-drop into terminals
+- [x] Clipboard support (Cmd+C/V) in terminals
+- [x] Tab rename and terminate from UI
+- [x] Error boundary for crash recovery
+- [x] Accessibility (ARIA labels, keyboard nav)
 - [ ] Multi-user collaborative sessions
 - [ ] Slack integration for team collaboration
 - [ ] Push notifications when sessions need input or complete
