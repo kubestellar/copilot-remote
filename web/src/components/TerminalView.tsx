@@ -139,6 +139,7 @@ function uniqueName(baseName: string, existingNames: string[]): string {
 const CHECKED_TILES_KEY = 'copilot-remote-checked-tiles';
 const TILE_MODE_KEY = 'copilot-remote-tile-mode';
 const TODO_PANEL_KEY = 'copilot-remote-show-todo-panel';
+const ACTIVE_TERMINAL_KEY = 'copilot-remote-active-terminal';
 /** CSS class applied to terminal containers during image drag-over */
 const DRAG_OVER_CLASS = 'drag-over-highlight';
 
@@ -199,6 +200,15 @@ export function TerminalView({ onBack }: Props) {
     localStorage.setItem(TILE_MODE_KEY, String(tileMode));
   }, [tileMode]);
 
+  // Persist active terminal tab (by tmuxSession name so it survives restarts)
+  useEffect(() => {
+    if (!activeTabId) return;
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (tab?.tmuxSession) {
+      localStorage.setItem(ACTIVE_TERMINAL_KEY, tab.tmuxSession);
+    }
+  }, [activeTabId, tabs]);
+
   useEffect(() => {
     localStorage.setItem(TODO_PANEL_KEY, String(showTodoPanel));
   }, [showTodoPanel]);
@@ -219,7 +229,7 @@ export function TerminalView({ onBack }: Props) {
   const [showSwarmPopover, setShowSwarmPopover] = useState(false);
 
   useEffect(() => {
-    saveCheckedSessions(tabs);
+    if (tabs.length > 0) saveCheckedSessions(tabs);
   }, [tabs]);
 
   // Preload terminal font before creating any xterm instances
@@ -674,7 +684,10 @@ export function TerminalView({ onBack }: Props) {
             };
           });
           setTabs(restored);
-          setActiveTabId(restored[0].id);
+          // Restore previously active terminal, or fall back to first tab
+          const savedSession = localStorage.getItem(ACTIVE_TERMINAL_KEY);
+          const savedTab = savedSession ? restored.find(t => t.tmuxSession === savedSession) : null;
+          setActiveTabId(savedTab ? savedTab.id : restored[0].id);
           // Clean up duplicates only (not empty-lastCommand ones — they may be re-adopted)
           for (const t of dupes) {
             fetch(`${serverUrl}/api/terminals/${t.id}`, {
