@@ -250,7 +250,7 @@ export function useTodoDispatcher(
 
   const addItem = useCallback((
     description: string,
-    options?: { recurring?: boolean; intervalMs?: number; maxRuns?: number },
+    options?: { recurring?: boolean; intervalMs?: number; maxRuns?: number; skipDispatch?: boolean },
   ) => {
     const trimmed = description.trim();
     if (!trimmed) return;
@@ -273,8 +273,10 @@ export function useTodoDispatcher(
 
     setItems(prev => {
       const updated = [...prev, newItem];
-      // Schedule dispatch after state updates
-      setTimeout(() => tryDispatchNext(), 0);
+      // Schedule dispatch after state updates (unless caller wants to just queue it)
+      if (!options?.skipDispatch) {
+        setTimeout(() => tryDispatchNext(), 0);
+      }
       return updated;
     });
   }, [tryDispatchNext]);

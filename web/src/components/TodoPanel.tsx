@@ -81,7 +81,8 @@ interface TodoPanelProps {
   items: TodoItem[];
   todoMode: boolean;
   tabs: TermTab[];
-  onAddItem: (description: string, options?: { recurring?: boolean; intervalMs?: number; maxRuns?: number }) => void;
+  lastCommand?: string;
+  onAddItem: (description: string, options?: { recurring?: boolean; intervalMs?: number; maxRuns?: number; skipDispatch?: boolean }) => void;
   onRemoveItem: (id: string) => void;
   onRetryItem: (id: string) => void;
   onStopRecurring: (id: string) => void;
@@ -95,6 +96,7 @@ export default function TodoPanel({
   items,
   todoMode,
   tabs: _tabs,
+  lastCommand,
   onAddItem,
   onRemoveItem,
   onRetryItem,
@@ -360,6 +362,33 @@ export default function TodoPanel({
         <Text sx={{ fontSize: '10px', color: 'fg.muted', mt: 1, display: 'block' }}>
           Press Enter to add{recurringEnabled ? ` (every ${formatIntervalLabel(selectedInterval)})` : ''}
         </Text>
+        {/* Quick-add last command from the active terminal */}
+        {lastCommand && (
+          <Box
+            sx={{
+              mt: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              p: '4px 6px',
+              borderRadius: 1,
+              bg: 'canvas.subtle',
+              border: '1px solid',
+              borderColor: 'border.muted',
+              cursor: 'pointer',
+              transition: 'border-color 0.15s',
+              ':hover': { borderColor: 'accent.emphasis' },
+            }}
+            onClick={() => onAddItem(lastCommand, { skipDispatch: true })}
+            title={`Add "${lastCommand}" to queue`}
+          >
+            <Text sx={{ fontSize: '9px', color: 'fg.muted', flexShrink: 0, fontWeight: 600 }}>Last cmd:</Text>
+            <Text sx={{ fontSize: '10px', color: 'fg.default', fontFamily: 'mono', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+              {lastCommand}
+            </Text>
+            <Text sx={{ fontSize: '9px', color: 'accent.fg', flexShrink: 0, fontWeight: 600 }}>+ Add</Text>
+          </Box>
+        )}
       </Box>
 
       {/* Item list */}
