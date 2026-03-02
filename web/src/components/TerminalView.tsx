@@ -80,6 +80,10 @@ const termInstances = new Map<string, {
   throttler: WriteThrottler;
 }>();
 
+// When true, fitAddon.fit() still adjusts rendering but resize is NOT sent to the PTY.
+// This prevents Claude Code / agent CLIs from clearing their screen when tiles rearrange.
+let suppressPtyResize = false;
+
 function getServerUrls() {
   const token = localStorage.getItem('copilot-remote-token') || '';
   const serverUrl = localStorage.getItem('copilot-remote-server') || `${window.location.protocol}//${window.location.hostname}:3001`;
@@ -231,6 +235,8 @@ export function TerminalView({ onBack }: Props) {
   const [tileMode, setTileMode] = useState(() => localStorage.getItem(TILE_MODE_KEY) === 'true');
   const [fontReady, setFontReady] = useState(false);
   const [focusedTileId, setFocusedTileId] = useState<string | null>(null);
+  const focusedTileIdRef = useRef(focusedTileId);
+  focusedTileIdRef.current = focusedTileId;
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [showTodoPanel, setShowTodoPanel] = useState(() => localStorage.getItem(TODO_PANEL_KEY) !== 'false');
@@ -433,7 +439,7 @@ export function TerminalView({ onBack }: Props) {
     });
 
     term.onResize(({ cols, rows }) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      if (!suppressPtyResize && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     });
 
     // Capture pane title changes (set by CLI tools like Copilot via \033]0;...\007)
@@ -951,6 +957,7 @@ export function TerminalView({ onBack }: Props) {
     }
     const mountTiles = () => {
       if (cancelled) return;
+      suppressPtyResize = true; // don't send resize to PTY while rearranging tiles
       const checked = tabsRef.current.filter(t => t.checked);
       let pending = 0;
       for (const tab of checked) {
@@ -976,7 +983,15 @@ export function TerminalView({ onBack }: Props) {
           createTermConnection(tab.id, el, tileFontSize);
         }
         // Track focus on each tile's terminal
-        const focusHandler = () => { if (!cancelled) setFocusedTileId(tab.id); };
+        const focusHandler = () => {
+          if (cancelled) return;
+          setFocusedTileId(tab.id);
+          // Send resize to PTY when user focuses a tile — this is the safe moment
+          const focusInst = termInstances.get(tab.id);
+          if (focusInst?.ws?.readyState === WebSocket.OPEN) {
+            focusInst.ws.send(JSON.stringify({ type: 'resize', cols: focusInst.term.cols, rows: focusInst.term.rows }));
+          }
+        };
         el.addEventListener('focusin', focusHandler);
         focusHandlers.push({ el, handler: focusHandler });
         // Capture wheel events — throttle to prevent macOS trackpad rocket scroll
@@ -1006,6 +1021,15 @@ export function TerminalView({ onBack }: Props) {
           for (const tab of checked) {
             const inst = termInstances.get(tab.id);
             if (inst) try { inst.fitAddon.fit(); inst.term.refresh(0, inst.term.rows - 1); inst.term.scrollToBottom(); } catch {}
+          }
+          // Re-enable PTY resize and send resize ONLY for the focused tile
+          suppressPtyResize = false;
+          const focusId = focusedTileIdRef.current || activeTabIdRef.current;
+          if (focusId) {
+            const focusInst = termInstances.get(focusId);
+            if (focusInst?.ws?.readyState === WebSocket.OPEN) {
+              focusInst.ws.send(JSON.stringify({ type: 'resize', cols: focusInst.term.cols, rows: focusInst.term.rows }));
+            }
           }
         });
       });
