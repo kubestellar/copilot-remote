@@ -1119,8 +1119,9 @@ export function TerminalView({ onBack }: Props) {
                   px: 2, py: '5px',
                   cursor: 'pointer',
                   borderRight: '1px solid', borderColor: 'border.muted',
-                  bg: !tileMode && tab.id === activeTabId ? 'canvas.default' : (tileMode && tab.id === focusedTileId ? 'canvas.default' : 'transparent'),
-                  boxShadow: (!tileMode && tab.id === activeTabId) || (tileMode && tab.id === focusedTileId) ? 'inset 0 -2px 0 var(--fgColor-accent, #58a6ff)' : 'none',
+                  bg: !tileMode && tab.id === activeTabId ? '#1f6feb' : (tileMode && tab.id === focusedTileId ? '#1f6feb' : 'transparent'),
+                  color: (!tileMode && tab.id === activeTabId) || (tileMode && tab.id === focusedTileId) ? '#ffffff' : 'fg.default',
+                  boxShadow: (!tileMode && tab.id === activeTabId) || (tileMode && tab.id === focusedTileId) ? 'inset 0 -3px 0 #58a6ff' : 'none',
                   ':hover': { bg: 'canvas.default' },
                   maxWidth: 500, minWidth: 150, flexShrink: 0,
                 }}
