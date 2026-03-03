@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Box, IconButton, Text, ActionMenu, ActionList } from '@primer/react';
-import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon, ListUnorderedIcon, GlobeIcon } from '@primer/octicons-react';
+import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon, ListUnorderedIcon, GlobeIcon, EyeIcon } from '@primer/octicons-react';
 import { useTodoDispatcher } from '../hooks/useTodoDispatcher';
 import { useSwarmStatus } from '../hooks/useSwarmStatus';
 import { api } from '../lib/api';
@@ -146,6 +146,7 @@ const TILE_MODE_KEY = 'copilot-remote-tile-mode';
 const TODO_PANEL_KEY = 'copilot-remote-show-todo-panel';
 const ACTIVE_TERMINAL_KEY = 'copilot-remote-active-terminal';
 const FONT_SIZE_KEY = 'copilot-remote-font-size';
+const FOCUS_MODE_KEY = 'copilot-remote:focusMode';
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 24;
 const DEFAULT_FONT_SIZE = 14;
@@ -239,6 +240,10 @@ export function TerminalView({ onBack }: Props) {
   const [tileMode, setTileMode] = useState(() => localStorage.getItem(TILE_MODE_KEY) === 'true');
   const [fontReady, setFontReady] = useState(false);
   const [focusedTileId, setFocusedTileId] = useState<string | null>(null);
+  const [focusMode, setFocusMode] = useState<'click' | 'hover'>(() => {
+    const saved = localStorage.getItem(FOCUS_MODE_KEY);
+    return saved === 'hover' ? 'hover' : 'click';
+  });
   const focusedTileIdRef = useRef(focusedTileId);
   focusedTileIdRef.current = focusedTileId;
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
@@ -261,6 +266,10 @@ export function TerminalView({ onBack }: Props) {
   useEffect(() => {
     localStorage.setItem(TILE_MODE_KEY, String(tileMode));
   }, [tileMode]);
+
+  useEffect(() => {
+    localStorage.setItem(FOCUS_MODE_KEY, focusMode);
+  }, [focusMode]);
 
   // Persist active terminal tab (by tmuxSession name so it survives restarts)
   useEffect(() => {
@@ -1391,6 +1400,24 @@ export function TerminalView({ onBack }: Props) {
           >
             <AppsIcon size={16} />
           </button>
+          {tileMode && (
+            <button
+              type="button"
+              aria-label={focusMode === 'hover' ? 'Focus mode: hover (click to switch)' : 'Focus mode: click (click to switch)'}
+              title={focusMode === 'hover' ? 'Hover to focus tiles' : 'Click to focus tiles'}
+              onClick={() => setFocusMode(m => m === 'hover' ? 'click' : 'hover')}
+              style={{
+                flexShrink: 0,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
+                backgroundColor: focusMode === 'hover' ? 'var(--bgColor-accent-emphasis, #316dca)' : 'transparent',
+                color: focusMode === 'hover' ? 'var(--fgColor-onEmphasis, #fff)' : 'var(--fgColor-muted, #768390)',
+                border: 'none', padding: 0,
+              }}
+            >
+              <EyeIcon size={16} />
+            </button>
+          )}
           <ActionMenu>
             <ActionMenu.Anchor>
               <IconButton icon={LinkIcon} aria-label="Attach tmux session (⌘⇧L)" title="Attach tmux session (⌘⇧L)" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
@@ -1509,6 +1536,7 @@ export function TerminalView({ onBack }: Props) {
                 }),
               }}
               onClick={isTile ? () => { const inst = termInstances.get(tab.id); if (inst) { inst.term.focus(); setFocusedTileId(tab.id); } } : undefined}
+              onMouseEnter={isTile && focusMode === 'hover' ? () => { setActiveTabId(tab.id); setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } : undefined}
             >
               {/* Tile header — only in tile mode */}
               {isTile && (
