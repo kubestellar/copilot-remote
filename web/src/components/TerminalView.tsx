@@ -278,13 +278,20 @@ export function TerminalView({ onBack }: Props) {
   // Apply global font size to all terminals
   useEffect(() => {
     localStorage.setItem(FONT_SIZE_KEY, String(globalFontSize));
-    if (tileMode) return; // tile mode manages its own font size
+
+    // In tile mode, derive tile font from the new global size
+    const checkedTabs = tabs.filter(t => t.checked);
+    const isTiled = tileMode && checkedTabs.length > 0;
+    const fontSize = isTiled
+      ? Math.max(MIN_FONT_SIZE, globalFontSize - (checkedTabs.length >= 2 ? 3 : 1))
+      : globalFontSize;
+
+    const prevSuppressPtyResize = suppressPtyResize;
+    if (isTiled) suppressPtyResize = true;
+
     for (const [, inst] of termInstances) {
-      inst.term.options.fontSize = globalFontSize;
-      // Clear cached font glyph atlas so renderer uses new font metrics
-      inst.term.clearTextureAtlas();
+      inst.term.options.fontSize = fontSize;
     }
-    // After atlas clear, refit to recalculate cols/rows for new cell size
     requestAnimationFrame(() => {
       for (const [, inst] of termInstances) {
         try {
@@ -292,8 +299,9 @@ export function TerminalView({ onBack }: Props) {
           inst.term.refresh(0, inst.term.rows - 1);
         } catch {}
       }
+      if (isTiled) suppressPtyResize = prevSuppressPtyResize;
     });
-  }, [globalFontSize, tileMode]);
+  }, [globalFontSize, tileMode, tabs]);
 
   // Getter for termInstances (passed to hook to avoid stale closure)
   const getTermInstances = useCallback(() => termInstances, []);
