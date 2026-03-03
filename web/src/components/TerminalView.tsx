@@ -820,23 +820,44 @@ export function TerminalView({ onBack }: Props) {
   }, [tileMode]);
 
   // Intercept wheel events on terminals to prevent macOS trackpad momentum
-  // "rocket scroll". We throttle events in capture phase — blocked events get
-  // preventDefault to stop them, allowed events pass through to xterm.js which
-  // sends mouse escape sequences (needed for tmux scroll mode).
+  // "rocket scroll". Strategy: block ALL original wheel events on .xterm,
+  // then re-dispatch a delta-clamped copy at a throttled rate. This prevents
+  // momentum events (which carry huge deltaY values) from causing rapid scroll.
   useEffect(() => {
     let lastWheel = 0;
+    const synthetic = new WeakSet<WheelEvent>();
+    const MAX_DELTA = 50; // ~3 lines per event in xterm.js
+    const THROTTLE_MS = 120; // ~8 events/sec max
+
     const handler = (e: WheelEvent) => {
+      if (synthetic.has(e)) return; // our own re-dispatched event — let through
       const target = e.target as HTMLElement;
       if (!target?.closest?.('.xterm')) return;
+
+      // Always block the original (may have huge momentum deltaY)
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
       const now = performance.now();
-      if (now - lastWheel < 100) { // 10 events/sec — smooth but no rocket scroll
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        return;
-      }
+      if (now - lastWheel < THROTTLE_MS) return; // throttled
       lastWheel = now;
-      // Let this event through to xterm.js naturally — it handles
-      // normal buffer scroll OR sends mouse escape seqs for tmux/alt-screen
+
+      // Re-dispatch with clamped delta so xterm.js scrolls a controlled amount
+      const clamped = new WheelEvent('wheel', {
+        deltaX: e.deltaX,
+        deltaY: Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), MAX_DELTA),
+        deltaZ: e.deltaZ,
+        deltaMode: e.deltaMode,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        screenX: e.screenX,
+        screenY: e.screenY,
+        bubbles: true,
+        cancelable: true,
+        view: e.view,
+      });
+      synthetic.add(clamped);
+      target.dispatchEvent(clamped);
     };
     document.addEventListener('wheel', handler, { capture: true, passive: false } as any);
     return () => {
@@ -923,7 +944,6 @@ export function TerminalView({ onBack }: Props) {
 
     const scaleTiles = () => {
       if (cancelled) return;
-      suppressPtyResize = true;
       const checked = tabsRef.current.filter(t => t.checked);
 
       for (const tab of checked) {
@@ -933,29 +953,40 @@ export function TerminalView({ onBack }: Props) {
         if (!inst?.term.element) continue;
 
         const termEl = inst.term.element;
-        // Get the terminal's natural full-viewport size.
-        // Because inactive single-mode tabs use visibility:hidden (not display:none),
-        // all terminals maintain their full-viewport layout dimensions.
-        const screen = termEl.querySelector('.xterm-screen') as HTMLElement | null;
-        const naturalW = screen?.offsetWidth || termEl.offsetWidth;
-        const naturalH = screen?.offsetHeight || termEl.offsetHeight;
+        const isAltBuffer = inst.term.buffer.active.type === 'alternate';
 
-        // Freeze element at natural size so grid doesn't auto-shrink it
-        termEl.style.width = naturalW + 'px';
-        termEl.style.height = naturalH + 'px';
-        termEl.style.transformOrigin = 'top left';
-        termEl.style.overflow = 'hidden';
+        if (isAltBuffer) {
+          // Alternate screen (Claude Code TUI, tmux copy mode, etc.):
+          // CSS scale to preserve content — any resize would clear the buffer.
+          suppressPtyResize = true;
+          const screen = termEl.querySelector('.xterm-screen') as HTMLElement | null;
+          const naturalW = screen?.offsetWidth || termEl.offsetWidth;
+          const naturalH = screen?.offsetHeight || termEl.offsetHeight;
 
-        const containerW = container.clientWidth;
-        const containerH = container.clientHeight;
-        if (containerW > 0 && containerH > 0 && naturalW > 0 && naturalH > 0) {
-          const scale = Math.min(containerW / naturalW, containerH / naturalH, 1);
-          termEl.style.transform = `scale(${scale})`;
+          termEl.style.width = naturalW + 'px';
+          termEl.style.height = naturalH + 'px';
+          termEl.style.transformOrigin = 'top left';
+          termEl.style.overflow = 'hidden';
+
+          const containerW = container.clientWidth;
+          const containerH = container.clientHeight;
+          if (containerW > 0 && containerH > 0 && naturalW > 0 && naturalH > 0) {
+            const scale = Math.min(containerW / naturalW, containerH / naturalH, 1);
+            termEl.style.transform = `scale(${scale})`;
+          }
+          suppressPtyResize = false;
+        } else {
+          // Normal buffer: fitAddon.fit() for readable font + proper line wrapping.
+          // Content lives in scrollback and survives resize.
+          termEl.style.transform = '';
+          termEl.style.transformOrigin = '';
+          termEl.style.width = '';
+          termEl.style.height = '';
+          termEl.style.overflow = '';
+          try { inst.fitAddon.fit(); } catch {}
+          inst.term.refresh(0, inst.term.rows - 1);
         }
-
-        // Wheel scroll handled by the unified handler above (single + tile modes)
       }
-      suppressPtyResize = false;
     };
 
     // Apply after layout settles (two rAFs for grid to be fully rendered)
