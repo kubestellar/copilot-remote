@@ -686,9 +686,9 @@ export default function TodoPanel({
                 }
                 e.stopPropagation();
               }}
-              rows={16}
+              rows={24}
               style={{
-                width: '100%', flex: 1, minHeight: 300, padding: '8px 10px', borderRadius: 6,
+                width: '100%', flex: 1, minHeight: 450, padding: '8px 10px', borderRadius: 6,
                 border: '1px solid var(--borderColor-default, #30363d)',
                 background: 'var(--bgColor-inset, #010409)',
                 color: 'var(--fgColor-default, #e6edf3)',
