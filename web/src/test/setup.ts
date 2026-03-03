@@ -15,6 +15,22 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 });
 
+// Stub adoptedStyleSheets for @oddbird/popover-polyfill (used by @primer/react Tooltip)
+if (!('adoptedStyleSheets' in Document.prototype)) {
+  Object.defineProperty(Document.prototype, 'adoptedStyleSheets', {
+    get() { return []; },
+    set() {},
+    configurable: true,
+  });
+}
+if (!('adoptedStyleSheets' in ShadowRoot.prototype)) {
+  Object.defineProperty(ShadowRoot.prototype, 'adoptedStyleSheets', {
+    get() { return []; },
+    set() {},
+    configurable: true,
+  });
+}
+
 // Stub canvas getContext for xterm.js renderer
 HTMLCanvasElement.prototype.getContext = function (_type: string) {
   return {
