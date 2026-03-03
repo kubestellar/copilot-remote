@@ -16,10 +16,10 @@ export function ConnectionStatus({ connected }: Props) {
     const check = async () => {
       try {
         await api.health();
-        setApiReachable(true);
+        setApiReachable(prev => prev === true ? prev : true);
       } catch (err) {
         console.debug('[ConnectionStatus] Health check failed:', err);
-        setApiReachable(false);
+        setApiReachable(prev => prev === false ? prev : false);
       }
     };
 

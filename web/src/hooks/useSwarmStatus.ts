@@ -61,9 +61,26 @@ export function useSwarmStatus() {
         tunnelRunning: boolean;
         tunnelProvider: string | null;
       }>('/api/swarm/status');
-      setStatus(prev => ({ ...prev, ...data, loading: false, error: null }));
+      setStatus(prev => {
+        // Only update if data actually changed to avoid unnecessary re-renders
+        if (
+          prev.enabled === data.enabled &&
+          prev.keyCount === data.keyCount &&
+          prev.tunnelUrl === data.tunnelUrl &&
+          prev.tunnelRunning === data.tunnelRunning &&
+          prev.tunnelProvider === data.tunnelProvider &&
+          !prev.loading &&
+          prev.error === null
+        ) {
+          return prev;
+        }
+        return { ...prev, ...data, loading: false, error: null };
+      });
     } catch (err: any) {
-      setStatus(prev => ({ ...prev, loading: false, error: err.message }));
+      setStatus(prev => {
+        if (!prev.loading && prev.error === err.message) return prev;
+        return { ...prev, loading: false, error: err.message };
+      });
     }
   }, []);
 
