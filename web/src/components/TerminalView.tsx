@@ -154,6 +154,8 @@ const FOCUS_MODE_KEY = 'copilot-remote:focusMode';
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 24;
 const DEFAULT_FONT_SIZE = 14;
+/** Number of prompts per tile before auto-triggering AI summarize */
+const AUTO_SUMMARIZE_PROMPT_INTERVAL = 5;
 /** CSS class applied to terminal containers during image drag-over */
 const DRAG_OVER_CLASS = 'drag-over-highlight';
 
@@ -199,9 +201,6 @@ class TerminalWriter {
   // DEC 2026 synchronized output escape sequences
   private static readonly SYNC_START = '\x1b[?2026h';
   private static readonly SYNC_END = '\x1b[?2026l';
-
-  // Screen-clearing ANSI sequences that cause viewport jumps during progressive rendering
-  private static readonly SCREEN_CLEAR_RE = /\x1b\[\d*J|\x1b\[H/;
 
   constructor(private term: Terminal) {}
 
@@ -273,28 +272,24 @@ class TerminalWriter {
       this.onPause?.();
     }
 
-    // Viewport scroll stabilization: if the batch contains screen-clearing sequences
-    // (ED, cursor home), xterm.js may jump the viewport during progressive rendering.
-    // Save the scroll position before write and restore it in the callback to prevent
-    // visible oscillation. If user was at the bottom, snap to bottom after write.
+    // Viewport scroll stabilization: xterm.js auto-scrolls to the bottom on
+    // every write. If the user has scrolled up to read history, save the scroll
+    // position and restore it after the write completes to prevent "rocket scroll"
+    // (viewport yanking to the bottom). If user is already at the bottom, let
+    // xterm.js keep auto-following new output.
     const vp = this.getViewport();
-    const hasScreenClear = TerminalWriter.SCREEN_CLEAR_RE.test(data);
     let savedScrollTop = 0;
-    let wasAtBottom = false;
-    if (hasScreenClear && vp) {
+    let wasAtBottom = true;
+    if (vp) {
       savedScrollTop = vp.scrollTop;
       const BOTTOM_THRESHOLD_PX = 5; // within 5px of bottom counts as "at bottom"
       wasAtBottom = savedScrollTop >= (vp.scrollHeight - vp.clientHeight - BOTTOM_THRESHOLD_PX);
     }
 
     this.term.write(data, () => {
-      // Restore scroll position after write completes
-      if (hasScreenClear && vp) {
-        if (wasAtBottom) {
-          vp.scrollTop = vp.scrollHeight; // snap to bottom — user was following output
-        } else {
-          vp.scrollTop = savedScrollTop;  // restore — user was reading history
-        }
+      // Restore scroll position — only needed when user was reading history
+      if (vp && !wasAtBottom) {
+        vp.scrollTop = savedScrollTop;
       }
       this.watermark = Math.max(0, this.watermark - data.length);
       if (this.paused && this.watermark < TerminalWriter.LOW_WATER) {
@@ -375,16 +370,22 @@ export function TerminalView({ onBack }: Props) {
   const globalFontSizeRef = useRef(globalFontSize);
   globalFontSizeRef.current = globalFontSize;
   const [summarizingTabId, setSummarizingTabId] = useState<string | null>(null);
-  const autoSummarizedRef = useRef<Set<string>>(new Set());
+  /** Per-tile prompt counter — triggers auto-summarize every N prompts */
+  const promptCountRef = useRef<Map<string, number>>(new Map());
 
-  /** Ask the server to summarize a terminal's content using AI */
-  const summarizeTab = useCallback(async (tabId: string) => {
+  /** Ask the server to summarize a terminal's content using AI.
+   *  @param manual — true when user clicks the button (locks the name so
+   *  server-driven renames don't overwrite it). Auto-summaries leave
+   *  userRenamed false so subsequent auto-summaries keep updating. */
+  const summarizeTab = useCallback(async (tabId: string, manual = false) => {
     setSummarizingTabId(tabId);
     try {
       const result = await api.summarizeTerminal(tabId);
       if (result.title) {
         const tab = tabsRef.current.find(t => t.id === tabId);
-        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, name: result.title!, userRenamed: true } : t));
+        setTabs(prev => prev.map(t =>
+          t.id === tabId ? { ...t, name: result.title!, userRenamed: manual || t.userRenamed } : t
+        ));
         if (tab?.tmuxSession) setCachedTabName(tab.tmuxSession, result.title);
       }
     } catch (err) {
@@ -567,10 +568,10 @@ export function TerminalView({ onBack }: Props) {
         if (parsed.type === 'prompt') {
           // Shell prompt returned — notify todo dispatcher
           todoDispatcherRef.current.onTilePromptReturned(tabId);
-          // Auto-summarize on first prompt detection per tab (if not user-renamed)
-          const tab = tabsRef.current.find(t => t.id === tabId);
-          if (tab && !tab.userRenamed && !autoSummarizedRef.current.has(tabId)) {
-            autoSummarizedRef.current.add(tabId);
+          // Track prompts per tile and auto-summarize every N prompts
+          const count = (promptCountRef.current.get(tabId) ?? 0) + 1;
+          promptCountRef.current.set(tabId, count);
+          if (count % AUTO_SUMMARIZE_PROMPT_INTERVAL === 0) {
             summarizeTab(tabId);
           }
           return;
@@ -1405,7 +1406,7 @@ export function TerminalView({ onBack }: Props) {
                 {tab.tmuxSession && (
                   <Box
                     as="button"
-                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); summarizeTab(tab.id); }}
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); summarizeTab(tab.id, true); }}
                     title="AI summarize session"
                     sx={{ bg: 'transparent', border: 'none', color: summarizingTabId === tab.id ? 'accent.fg' : isActive ? 'rgba(255,255,255,0.7)' : 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, opacity: summarizingTabId === tab.id ? 0.6 : 1, ':hover': { color: isActive ? '#ffffff' : 'accent.fg' } }}
                   >

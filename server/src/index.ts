@@ -458,9 +458,10 @@ app.post('/api/terminals/:id/summarize', async (req, res) => {
     }
   };
 
+  const SUMMARIZE_TIMEOUT_MS = 15_000;
   const timeout = setTimeout(() => {
     respond({ title: result.trim().replace(/^["']|["']$/g, '') || null, error: 'timeout' });
-  }, 15_000);
+  }, SUMMARIZE_TIMEOUT_MS);
 
   acpManager.on('chunk', chunkHandler);
   acpManager.on('turn_complete', (sid: string) => doneHandler(sid));
