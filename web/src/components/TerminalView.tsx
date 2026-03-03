@@ -281,18 +281,17 @@ export function TerminalView({ onBack }: Props) {
     if (tileMode) return; // tile mode manages its own font size
     for (const [, inst] of termInstances) {
       inst.term.options.fontSize = globalFontSize;
+      // Clear cached font glyph atlas so renderer uses new font metrics
+      inst.term.clearTextureAtlas();
     }
-    // xterm.js needs TWO animation frames: one to render new font glyphs,
-    // then another to measure the updated cell dimensions for fit().
+    // After atlas clear, refit to recalculate cols/rows for new cell size
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        for (const [, inst] of termInstances) {
-          try {
-            inst.fitAddon.fit();
-            inst.term.refresh(0, inst.term.rows - 1);
-          } catch {}
-        }
-      });
+      for (const [, inst] of termInstances) {
+        try {
+          inst.fitAddon.fit();
+          inst.term.refresh(0, inst.term.rows - 1);
+        } catch {}
+      }
     });
   }, [globalFontSize, tileMode]);
 
