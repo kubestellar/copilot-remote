@@ -15,11 +15,19 @@ interface UpdateInfo {
 
 type UpdateState = 'idle' | 'checking' | 'available' | 'applying' | 'done' | 'error';
 
+const SPIN_STYLE = `
+@keyframes update-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+`;
+
 export function UpdateButton() {
   const [state, setState] = useState<UpdateState>('idle');
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPopover, setShowPopover] = useState(false);
+  const [spinning, setSpinning] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -89,7 +97,13 @@ export function UpdateButton() {
       <Tooltip text={state === 'available' ? `Update available (${info?.behindBy} commit${info?.behindBy === 1 ? '' : 's'} behind)` : state === 'applying' ? 'Updating...' : state === 'done' ? 'Update complete — reload page' : 'Check for updates'} direction="sw">
         <button
           type="button"
-          onClick={() => setShowPopover(!showPopover)}
+          onClick={() => {
+            setShowPopover(!showPopover);
+            if (!spinning) {
+              setSpinning(true);
+              checkUpdate().finally(() => setTimeout(() => setSpinning(false), 600));
+            }
+          }}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 4,
             background: 'none', border: 'none', padding: '2px 6px',
@@ -97,7 +111,10 @@ export function UpdateButton() {
           }}
           aria-label="Update status"
         >
-          <SyncIcon size={16} />
+          <style>{SPIN_STYLE}</style>
+          <span style={spinning ? { display: 'inline-flex', animation: 'update-spin 0.6s ease-in-out' } : { display: 'inline-flex' }}>
+            <SyncIcon size={16} />
+          </span>
           {dotColor && (
             <Box
               sx={{
@@ -158,7 +175,7 @@ export function UpdateButton() {
                   Update Now
                 </button>
               ) : (
-                <Text sx={{ fontSize: 0, color: 'success.fg' }}>✓ Up to date</Text>
+                <Text sx={{ fontSize: 0, color: 'success.fg' }}>✓ Up to date with kubestellar/copilot-remote</Text>
               )}
             </>
           )}
@@ -200,7 +217,7 @@ export function UpdateButton() {
 
           {state !== 'applying' && state !== 'done' && (
             <button
-              onClick={() => { setShowPopover(false); checkUpdate(); }}
+              onClick={() => { checkUpdate(); }}
               style={{
                 width: '100%', padding: '4px', marginTop: 8, borderRadius: 6,
                 background: 'transparent', color: 'var(--fgColor-muted, #8b949e)',
