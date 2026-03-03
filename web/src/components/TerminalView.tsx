@@ -190,6 +190,7 @@ class TerminalWriter {
   private paused = false;
   private onPause: (() => void) | null = null;
   private onResume: (() => void) | null = null;
+  private viewport: HTMLElement | null = null;  // cached .xterm-viewport element
 
   // Backpressure watermarks (bytes pending in xterm.js write buffer)
   private static readonly HIGH_WATER = 128_000;  // 128KB — pause upstream
@@ -198,6 +199,9 @@ class TerminalWriter {
   // DEC 2026 synchronized output escape sequences
   private static readonly SYNC_START = '\x1b[?2026h';
   private static readonly SYNC_END = '\x1b[?2026l';
+
+  // Screen-clearing ANSI sequences that cause viewport jumps during progressive rendering
+  private static readonly SCREEN_CLEAR_RE = /\x1b\[\d*J|\x1b\[H/;
 
   constructor(private term: Terminal) {}
 
@@ -269,7 +273,29 @@ class TerminalWriter {
       this.onPause?.();
     }
 
+    // Viewport scroll lock: if the batch contains screen-clearing sequences (ED, cursor home),
+    // xterm.js will jump the viewport during progressive rendering of the batch.
+    // Lock the viewport at its current position during the write, then snap to bottom
+    // in the callback (if user was already at the bottom).
+    const vp = this.getViewport();
+    const hasScreenClear = TerminalWriter.SCREEN_CLEAR_RE.test(data);
+    let wasAtBottom = false;
+    if (hasScreenClear && vp) {
+      const BOTTOM_THRESHOLD_PX = 5; // within 5px of bottom counts as "at bottom"
+      wasAtBottom = vp.scrollTop >= (vp.scrollHeight - vp.clientHeight - BOTTOM_THRESHOLD_PX);
+      // Freeze: prevent scroll position changes during write
+      vp.style.overflowY = 'hidden';
+    }
+
     this.term.write(data, () => {
+      // Unfreeze viewport and restore scroll position
+      if (hasScreenClear && vp) {
+        vp.style.overflowY = '';
+        if (wasAtBottom) {
+          // Snap to bottom — user was following output
+          vp.scrollTop = vp.scrollHeight;
+        }
+      }
       this.watermark = Math.max(0, this.watermark - data.length);
       if (this.paused && this.watermark < TerminalWriter.LOW_WATER) {
         this.paused = false;
@@ -279,6 +305,14 @@ class TerminalWriter {
 
     // If more data accumulated during write, schedule another flush
     if (this.queue) this.scheduleFlush();
+  }
+
+  /** Lazily find and cache the .xterm-viewport element */
+  private getViewport(): HTMLElement | null {
+    if (!this.viewport) {
+      this.viewport = this.term.element?.querySelector('.xterm-viewport') as HTMLElement | null;
+    }
+    return this.viewport;
   }
 
   dispose() {
