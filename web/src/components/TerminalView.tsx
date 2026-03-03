@@ -892,7 +892,7 @@ export function TerminalView({ onBack }: Props) {
       const clampedDeltaY = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), MAX_DELTA_Y);
       const synth = new WheelEvent('wheel', {
         deltaX: e.deltaX,
-        deltaY: clampedDeltaY,
+        deltaY: -clampedDeltaY,
         deltaZ: e.deltaZ,
         deltaMode: e.deltaMode,
         bubbles: true,
