@@ -880,9 +880,10 @@ export function TerminalView({ onBack }: Props) {
     : checkedTabs.length <= 9 ? 3
     : 4;
 
-  // Fit terminals to their containers using fitAddon (tile mode or single mode).
-  // With unified containers (no DOM reparenting), fitAddon.fit() is safe —
-  // terminals reflow to the tile cell size at normal font, no CSS scaling needed.
+  // Tile mode: CSS scale to preserve terminal content without any resize.
+  // fitAddon.fit() or PTY resize would cause alternate-screen apps (Claude Code)
+  // to clear and redraw at idle state, losing visible content. CSS transform:scale()
+  // shrinks the full-viewport terminal visually into the tile cell.
   useEffect(() => {
     if (!tileMode || !fontReady) {
       if (!tileMode) {
@@ -917,15 +918,15 @@ export function TerminalView({ onBack }: Props) {
         if (active && checked.some(t => t.id === active)) return active;
         return checked[0].id;
       });
-      // Ensure activeTabId is among checked tiles (so tab bar highlights correctly)
       const currentActive = activeTabIdRef.current;
       if (!currentActive || !checked.some(t => t.id === currentActive)) {
         setActiveTabId(checked[0].id);
       }
     }
 
-    const fitTiles = () => {
+    const scaleTiles = () => {
       if (cancelled) return;
+      suppressPtyResize = true;
       const checked = tabsRef.current.filter(t => t.checked);
 
       for (const tab of checked) {
@@ -935,19 +936,27 @@ export function TerminalView({ onBack }: Props) {
         if (!inst?.term.element) continue;
 
         const termEl = inst.term.element;
-        // Clear any leftover inline styles from previous approaches
-        termEl.style.transform = '';
-        termEl.style.transformOrigin = '';
-        termEl.style.width = '';
-        termEl.style.height = '';
+        // Get the terminal's natural full-viewport size.
+        // Because inactive single-mode tabs use visibility:hidden (not display:none),
+        // all terminals maintain their full-viewport layout dimensions.
+        const screen = termEl.querySelector('.xterm-screen') as HTMLElement | null;
+        const naturalW = screen?.offsetWidth || termEl.offsetWidth;
+        const naturalH = screen?.offsetHeight || termEl.offsetHeight;
 
-        // fitAddon.fit() resizes cols/rows to match the tile cell at current font.
-        // PTY resize IS sent so the remote app redraws at the correct width.
-        try { inst.fitAddon.fit(); } catch {}
-        inst.term.refresh(0, inst.term.rows - 1);
+        // Freeze element at natural size so grid doesn't auto-shrink it
+        termEl.style.width = naturalW + 'px';
+        termEl.style.height = naturalH + 'px';
+        termEl.style.transformOrigin = 'top left';
+        termEl.style.overflow = 'hidden';
 
-        // Wheel throttle for macOS trackpad — only throttle timing,
-        // don't block scroll from reaching xterm.js
+        const containerW = container.clientWidth;
+        const containerH = container.clientHeight;
+        if (containerW > 0 && containerH > 0 && naturalW > 0 && naturalH > 0) {
+          const scale = Math.min(containerW / naturalW, containerH / naturalH, 1);
+          termEl.style.transform = `scale(${scale})`;
+        }
+
+        // Wheel throttle for macOS trackpad
         let lastWheel = 0;
         const wheelHandler = (e: WheelEvent) => {
           const now = performance.now();
@@ -957,17 +966,17 @@ export function TerminalView({ onBack }: Props) {
             return;
           }
           lastWheel = now;
-          // Let xterm.js handle the event naturally
         };
         container.addEventListener('wheel', wheelHandler, { capture: true, passive: false });
         wheelHandlers.push({ el: container, handler: wheelHandler });
       }
+      suppressPtyResize = false;
     };
 
     // Apply after layout settles (two rAFs for grid to be fully rendered)
     requestAnimationFrame(() => {
       if (!cancelled) requestAnimationFrame(() => {
-        if (!cancelled) fitTiles();
+        if (!cancelled) scaleTiles();
       });
     });
 
