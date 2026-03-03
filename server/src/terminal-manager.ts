@@ -224,6 +224,20 @@ class TerminalManager extends EventEmitter {
     }
   }
 
+  /** Capture the visible pane content for a tmux session (last N chars) */
+  capturePaneContent(sessionName: string, maxChars = 2000): string {
+    if (!TMUX_PATH) return '';
+    try {
+      const content = execSync(
+        `${TMUX_PATH} capture-pane -t "${sessionName}" -p -S -50`,
+        { encoding: 'utf8', timeout: 3000 },
+      ).trim();
+      return content.slice(-maxChars);
+    } catch {
+      return '';
+    }
+  }
+
   /** Get the current command running in a tmux session's active pane */
   getTmuxPaneCommand(sessionName: string): string {
     if (!TMUX_PATH) return '';

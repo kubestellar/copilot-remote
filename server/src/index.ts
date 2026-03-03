@@ -409,6 +409,70 @@ app.delete('/api/tmux-sessions/:name', (req, res) => {
   res.json({ killed });
 });
 
+// Terminal session summarization — uses ACP to generate a short title from pane content
+app.post('/api/terminals/:id/summarize', async (req, res) => {
+  const terminal = terminalManager.get(req.params.id);
+  if (!terminal) {
+    res.status(404).json({ error: 'Terminal not found' });
+    return;
+  }
+
+  const paneContent = terminalManager.capturePaneContent(terminal.tmuxSession);
+  if (!paneContent) {
+    res.status(400).json({ error: 'No terminal content available' });
+    return;
+  }
+
+  const summarizePrompt = `Summarize what the user is doing in this terminal session in 5 words or less. Return ONLY the short title, no explanation or quotes.\n\nTerminal output:\n${paneContent}`;
+  const sessionId = `_summarize_${Date.now()}`;
+  let result = '';
+  let responded = false;
+
+  const cleanup = () => {
+    acpManager.off('chunk', chunkHandler);
+    acpManager.off('turn_complete', doneHandler);
+    acpManager.off('error', errorHandler);
+    acpManager.destroy(sessionId);
+  };
+  const respond = (data: object) => {
+    if (responded) return;
+    responded = true;
+    cleanup();
+    clearTimeout(timeout);
+    res.json(data);
+  };
+
+  const chunkHandler = (sid: string, text: string) => {
+    if (sid === sessionId) result += text;
+  };
+  const doneHandler = (sid: string) => {
+    if (sid === sessionId) {
+      const title = result.trim().replace(/^["']|["']$/g, '') || 'Terminal';
+      respond({ title });
+    }
+  };
+  const errorHandler = (sid: string, err: unknown) => {
+    if (sid === sessionId) {
+      const msg = err instanceof Error ? err.message : String(err);
+      respond({ title: null, error: msg });
+    }
+  };
+
+  const timeout = setTimeout(() => {
+    respond({ title: result.trim().replace(/^["']|["']$/g, '') || null, error: 'timeout' });
+  }, 15_000);
+
+  acpManager.on('chunk', chunkHandler);
+  acpManager.on('turn_complete', (sid: string) => doneHandler(sid));
+  acpManager.on('error', (sid: string, err: unknown) => errorHandler(sid, err));
+
+  try {
+    await acpManager.sendPrompt(sessionId, summarizePrompt);
+  } catch (err: any) {
+    respond({ title: null, error: err.message });
+  }
+});
+
 // Todo queue REST endpoints
 app.get('/api/todos', (_req, res) => {
   res.json(getTodos());

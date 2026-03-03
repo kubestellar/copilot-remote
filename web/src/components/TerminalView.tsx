@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Box, IconButton, Text, ActionMenu, ActionList } from '@primer/react';
-import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon, ListUnorderedIcon, GlobeIcon, EyeIcon } from '@primer/octicons-react';
+import { PlusIcon, XIcon, ArrowLeftIcon, AppsIcon, LinkIcon, PencilIcon, TrashIcon, ListUnorderedIcon, GlobeIcon, EyeIcon, SparkleIcon } from '@primer/octicons-react';
 import { useTodoDispatcher } from '../hooks/useTodoDispatcher';
 import { useSwarmStatus } from '../hooks/useSwarmStatus';
 import { api } from '../lib/api';
@@ -340,6 +340,25 @@ export function TerminalView({ onBack }: Props) {
   activeTabIdRef.current = activeTabId;
   const globalFontSizeRef = useRef(globalFontSize);
   globalFontSizeRef.current = globalFontSize;
+  const [summarizingTabId, setSummarizingTabId] = useState<string | null>(null);
+  const autoSummarizedRef = useRef<Set<string>>(new Set());
+
+  /** Ask the server to summarize a terminal's content using AI */
+  const summarizeTab = useCallback(async (tabId: string) => {
+    setSummarizingTabId(tabId);
+    try {
+      const result = await api.summarizeTerminal(tabId);
+      if (result.title) {
+        const tab = tabsRef.current.find(t => t.id === tabId);
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, name: result.title!, userRenamed: true } : t));
+        if (tab?.tmuxSession) setCachedTabName(tab.tmuxSession, result.title);
+      }
+    } catch (err) {
+      console.debug('[Summarize] Failed:', err);
+    } finally {
+      setSummarizingTabId(null);
+    }
+  }, []);
 
   // Persist tile mode and checked tiles to localStorage
   useEffect(() => {
@@ -514,6 +533,12 @@ export function TerminalView({ onBack }: Props) {
         if (parsed.type === 'prompt') {
           // Shell prompt returned — notify todo dispatcher
           todoDispatcherRef.current.onTilePromptReturned(tabId);
+          // Auto-summarize on first prompt detection per tab (if not user-renamed)
+          const tab = tabsRef.current.find(t => t.id === tabId);
+          if (tab && !tab.userRenamed && !autoSummarizedRef.current.has(tabId)) {
+            autoSummarizedRef.current.add(tabId);
+            summarizeTab(tabId);
+          }
           return;
         }
       } catch (_parseErr) { /* raw terminal data */ }
@@ -1408,6 +1433,16 @@ export function TerminalView({ onBack }: Props) {
                     sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: 'accent.fg' } }}
                   >
                     <ListUnorderedIcon size={12} />
+                  </Box>
+                )}
+                {tab.tmuxSession && (
+                  <Box
+                    as="button"
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); summarizeTab(tab.id); }}
+                    title="AI summarize session"
+                    sx={{ bg: 'transparent', border: 'none', color: summarizingTabId === tab.id ? 'accent.fg' : 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, opacity: summarizingTabId === tab.id ? 0.6 : 1, ':hover': { color: 'accent.fg' } }}
+                  >
+                    <SparkleIcon size={12} />
                   </Box>
                 )}
                 {tab.tmuxSession && (

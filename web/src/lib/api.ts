@@ -58,6 +58,9 @@ export const api = {
   saveTodos: (items: TodoItem[], todoMode: boolean) =>
     request<{ ok: boolean }>('/api/todos', { method: 'PUT', body: JSON.stringify({ items, todoMode }) }),
 
+  summarizeTerminal: (id: string) =>
+    request<{ title: string | null; error?: string }>(`/api/terminals/${id}/summarize`, { method: 'POST' }),
+
   /** Upload a file (drag-drop image) to the server and return its filesystem path */
   uploadFile: async (file: File): Promise<{ path: string }> => {
     const buffer = await file.arrayBuffer();
