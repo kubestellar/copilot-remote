@@ -872,35 +872,83 @@ export function TerminalView({ onBack }: Props) {
   }, [tileMode]);
 
   // Prevent macOS trackpad momentum "rocket scroll" while preserving normal
-  // scroll in tmux. Instead of blocking-then-redispatching (which breaks xterm.js
-  // internal handlers), we simply THROTTLE: block events that arrive too fast,
-  // let one real native event through every THROTTLE_MS. xterm.js handles the
-  // native events normally — sending mouse escape sequences to tmux, scrolling
-  // its own buffer, etc.
+  // scroll in tmux. Strategy: block ALL native wheel events, then re-dispatch
+  // controlled synthetic events with clamped deltaY. A module-level flag
+  // prevents the capture handler from re-catching our synthetic events.
+  // Momentum detection: track delta decay patterns to identify and fully
+  // suppress macOS inertial scrolling.
   useEffect(() => {
     let lastWheel = 0;
-    const THROTTLE_MS = 150;  // ~6-7 scroll events/sec max
+    let lastAbsDelta = 0;
+    let momentumCount = 0;
+    let isSynthetic = false;
+    const THROTTLE_MS = 120;       // max ~8 scroll events/sec
+    const MOMENTUM_THRESHOLD = 3;  // consecutive decaying events to trigger momentum lock
+    const MOMENTUM_RESET_MS = 300; // pause before resetting momentum detection
 
     const handler = (e: WheelEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target?.closest?.('.xterm')) return;
+      // Let our own synthetic events pass through untouched
+      if (isSynthetic) return;
 
-      // During font changes, block all scroll
-      if (suppressScroll) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        return;
-      }
+      const target = e.target as HTMLElement;
+      const xtermEl = target?.closest?.('.xterm');
+      if (!xtermEl) return;
+
+      // Block ALL native wheel events — we control what gets through
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
+      // During font changes, block all scroll entirely
+      if (suppressScroll) return;
 
       const now = performance.now();
-      if (now - lastWheel < THROTTLE_MS) {
-        // Too fast — block this event entirely
-        e.preventDefault();
-        e.stopImmediatePropagation();
+      const elapsed = now - lastWheel;
+      const absDelta = Math.abs(e.deltaY);
+
+      // Momentum detection: rapid events with decaying or tiny deltas
+      if (elapsed < 80 && absDelta > 0) {
+        if (absDelta <= lastAbsDelta || absDelta < 4) {
+          momentumCount++;
+        } else {
+          momentumCount = 0;
+        }
+      } else if (elapsed >= MOMENTUM_RESET_MS) {
+        // Long pause — user lifted finger, reset momentum tracking
+        momentumCount = 0;
+      }
+
+      lastAbsDelta = absDelta;
+
+      // If we've detected momentum scrolling, block completely
+      if (momentumCount >= MOMENTUM_THRESHOLD) {
+        lastWheel = now;
         return;
       }
+
+      // Throttle: only allow one scroll event per THROTTLE_MS
+      if (elapsed < THROTTLE_MS) return;
+
       lastWheel = now;
-      // Let this event through to xterm.js naturally — no re-dispatch needed
+
+      // Find the viewport element inside xterm for dispatching
+      const viewport = xtermEl.querySelector('.xterm-viewport');
+      if (!viewport) return;
+
+      // Re-dispatch a synthetic event with clamped deltaY (max ±3 pixels)
+      const clampedDelta = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 3);
+      const syntheticEvent = new WheelEvent('wheel', {
+        deltaX: 0,
+        deltaY: clampedDelta,
+        deltaMode: e.deltaMode,
+        bubbles: true,
+        cancelable: true,
+        clientX: e.clientX,
+        clientY: e.clientY,
+      });
+
+      isSynthetic = true;
+      viewport.dispatchEvent(syntheticEvent);
+      isSynthetic = false;
     };
     document.addEventListener('wheel', handler, { capture: true, passive: false } as any);
     return () => {

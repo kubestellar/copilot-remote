@@ -1,9 +1,11 @@
 /**
  * Tests for the terminal wheel-event scroll handler.
  *
- * Strategy: throttle-only. Block rapid momentum events, let slow events through
- * natively to xterm.js. No synthetic re-dispatch — xterm.js handles native
- * wheel events for both its scrollback buffer and tmux mouse escape sequences.
+ * Strategy v7: Block ALL native wheel events, detect momentum scrolling,
+ * re-dispatch controlled synthetic events with clamped deltaY on the
+ * .xterm-viewport element. A module-level flag prevents the capture handler
+ * from re-catching synthetic events. Momentum detection identifies macOS
+ * trackpad inertial scrolling by tracking delta decay patterns.
  *
  * The handler listens on `document` in capture phase so it intercepts events
  * before xterm.js sees them.
@@ -11,35 +13,84 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Constants matching TerminalView.tsx ──────────────────────────────────
-const THROTTLE_MS = 150;
+const THROTTLE_MS = 120;
+const MOMENTUM_THRESHOLD = 3;
+const MOMENTUM_RESET_MS = 300;
 
 // ── Simulated suppressScroll flag (mirrors module-level in TerminalView) ─
 let suppressScroll = false;
 
 /**
- * Install the scroll handler — standalone copy of the TerminalView logic.
+ * Install the scroll handler — standalone copy of the TerminalView v7 logic.
  */
 function installScrollHandler() {
   let lastWheel = 0;
+  let lastAbsDelta = 0;
+  let momentumCount = 0;
+  let isSynthetic = false;
 
   const handler = (e: WheelEvent) => {
-    const target = e.target as HTMLElement;
-    if (!target?.closest?.('.xterm')) return;
+    // Let our own synthetic events pass through untouched
+    if (isSynthetic) return;
 
-    if (suppressScroll) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      return;
-    }
+    const target = e.target as HTMLElement;
+    const xtermEl = target?.closest?.('.xterm');
+    if (!xtermEl) return;
+
+    // Block ALL native wheel events
+    e.preventDefault();
+    e.stopImmediatePropagation();
+
+    // During font changes, block all scroll entirely
+    if (suppressScroll) return;
 
     const now = performance.now();
-    if (now - lastWheel < THROTTLE_MS) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
+    const elapsed = now - lastWheel;
+    const absDelta = Math.abs(e.deltaY);
+
+    // Momentum detection
+    if (elapsed < 80 && absDelta > 0) {
+      if (absDelta <= lastAbsDelta || absDelta < 4) {
+        momentumCount++;
+      } else {
+        momentumCount = 0;
+      }
+    } else if (elapsed >= MOMENTUM_RESET_MS) {
+      momentumCount = 0;
+    }
+
+    lastAbsDelta = absDelta;
+
+    // If we've detected momentum scrolling, block completely
+    if (momentumCount >= MOMENTUM_THRESHOLD) {
+      lastWheel = now;
       return;
     }
+
+    // Throttle
+    if (elapsed < THROTTLE_MS) return;
+
     lastWheel = now;
-    // Let event through naturally
+
+    // Find the viewport element inside xterm for dispatching
+    const viewport = xtermEl.querySelector('.xterm-viewport');
+    if (!viewport) return;
+
+    // Re-dispatch with clamped deltaY
+    const clampedDelta = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 3);
+    const syntheticEvent = new WheelEvent('wheel', {
+      deltaX: 0,
+      deltaY: clampedDelta,
+      deltaMode: e.deltaMode,
+      bubbles: true,
+      cancelable: true,
+      clientX: e.clientX,
+      clientY: e.clientY,
+    });
+
+    isSynthetic = true;
+    viewport.dispatchEvent(syntheticEvent);
+    isSynthetic = false;
   };
 
   document.addEventListener('wheel', handler, { capture: true });
@@ -48,106 +99,133 @@ function installScrollHandler() {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-/** Create a .xterm > .xterm-screen DOM structure and return the inner target */
-function createXtermElement(): HTMLDivElement {
+/** Create a .xterm > .xterm-viewport > .xterm-screen DOM structure */
+function createXtermElement(): { screen: HTMLDivElement; viewport: HTMLDivElement; xterm: HTMLDivElement } {
   const xterm = document.createElement('div');
   xterm.classList.add('xterm');
-  const inner = document.createElement('div');
-  inner.classList.add('xterm-screen');
-  xterm.appendChild(inner);
+  const viewport = document.createElement('div');
+  viewport.classList.add('xterm-viewport');
+  const screen = document.createElement('div');
+  screen.classList.add('xterm-screen');
+  xterm.appendChild(viewport);
+  xterm.appendChild(screen);
   document.body.appendChild(xterm);
-  return inner;
+  return { screen, viewport, xterm };
 }
 
-/** Fire a wheel event and check if it reaches bubble listeners (i.e. was NOT blocked) */
-function fireWheel(target: HTMLElement, deltaY: number): { passedThrough: boolean; event: WheelEvent } {
-  let passedThrough = false;
-  const bubbleListener = () => { passedThrough = true; };
-  // Listen on parent in bubble phase — only fires if handler didn't stopImmediatePropagation
-  target.parentElement!.addEventListener('wheel', bubbleListener);
+/** Fire a native wheel event on the screen element, return whether a synthetic event reached the viewport */
+function fireWheel(screen: HTMLElement, viewport: HTMLElement, deltaY: number): { reachedViewport: boolean; syntheticDeltaY: number | null } {
+  let reachedViewport = false;
+  let syntheticDeltaY: number | null = null;
+  const viewportListener = (e: WheelEvent) => { reachedViewport = true; syntheticDeltaY = e.deltaY; };
+  viewport.addEventListener('wheel', viewportListener as EventListener);
 
   const ev = new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true });
-  target.dispatchEvent(ev);
+  screen.dispatchEvent(ev);
 
-  target.parentElement!.removeEventListener('wheel', bubbleListener);
-  return { passedThrough, event: ev };
+  viewport.removeEventListener('wheel', viewportListener as EventListener);
+  return { reachedViewport, syntheticDeltaY };
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
-describe('Terminal scroll handler', () => {
+describe('Terminal scroll handler v7', () => {
   let cleanup: () => void;
-  let target: HTMLDivElement;
+  let screen: HTMLDivElement;
+  let viewport: HTMLDivElement;
+  let xterm: HTMLDivElement;
 
   beforeEach(() => {
     suppressScroll = false;
-    target = createXtermElement();
+    ({ screen, viewport, xterm } = createXtermElement());
     cleanup = installScrollHandler();
   });
 
   afterEach(() => {
     cleanup();
-    target.parentElement?.remove();
+    xterm.remove();
   });
 
-  // ── Core: first event passes through ──────────────────────────────────
+  // ── Core: first event dispatches synthetic with clamped delta ─────────
 
-  it('should let the first wheel event through (not blocked)', () => {
-    const { passedThrough } = fireWheel(target, 100);
-    expect(passedThrough).toBe(true);
+  it('should dispatch a synthetic event on first wheel', () => {
+    const { reachedViewport } = fireWheel(screen, viewport, 100);
+    expect(reachedViewport).toBe(true);
   });
 
-  it('should preserve the original deltaY on passthrough events', () => {
-    const received: WheelEvent[] = [];
-    // Listen in bubble phase — if event passes through, we see it here
-    target.parentElement!.addEventListener('wheel', (e) => received.push(e));
+  it('should clamp deltaY to max ±3 on synthetic events', () => {
+    const { syntheticDeltaY } = fireWheel(screen, viewport, 250);
+    expect(syntheticDeltaY).toBe(3);
+  });
 
-    fireWheel(target, -250);
+  it('should clamp negative deltaY to -3', () => {
+    const { syntheticDeltaY } = fireWheel(screen, viewport, -250);
+    expect(syntheticDeltaY).toBe(-3);
+  });
 
-    expect(received.length).toBe(1);
-    expect(received[0].deltaY).toBe(-250);
+  it('should preserve small deltaY values (below clamp)', () => {
+    const { syntheticDeltaY } = fireWheel(screen, viewport, 2);
+    expect(syntheticDeltaY).toBe(2);
   });
 
   // ── Throttle: rapid events are blocked ────────────────────────────────
 
   it('should block the second rapid event', () => {
-    fireWheel(target, 50); // first — passes
-    const { passedThrough } = fireWheel(target, 50); // second — blocked
-    expect(passedThrough).toBe(false);
+    fireWheel(screen, viewport, 50); // first — dispatches synthetic
+    const { reachedViewport } = fireWheel(screen, viewport, 50); // second — blocked
+    expect(reachedViewport).toBe(false);
   });
 
-  it('should block many rapid events — only first passes', () => {
+  it('should block many rapid events — only first dispatches', () => {
     const results = [];
     for (let i = 0; i < 10; i++) {
-      results.push(fireWheel(target, 100).passedThrough);
+      results.push(fireWheel(screen, viewport, 100).reachedViewport);
     }
-    // First passes, rest blocked
     expect(results[0]).toBe(true);
-    expect(results.slice(1).every(p => p === false)).toBe(true);
+    expect(results.slice(1).every(r => r === false)).toBe(true);
   });
 
   it('should allow events again after throttle window expires', async () => {
-    const r1 = fireWheel(target, 50);
-    expect(r1.passedThrough).toBe(true);
+    const r1 = fireWheel(screen, viewport, 50);
+    expect(r1.reachedViewport).toBe(true);
 
-    // Wait past throttle
     await new Promise((r) => setTimeout(r, THROTTLE_MS + 20));
 
-    const r2 = fireWheel(target, 50);
-    expect(r2.passedThrough).toBe(true);
+    const r2 = fireWheel(screen, viewport, 50);
+    expect(r2.reachedViewport).toBe(true);
   });
 
-  it('should count bubble listeners receiving events correctly', async () => {
-    const received: number[] = [];
-    target.parentElement!.addEventListener('wheel', (e) => received.push(e.deltaY));
+  // ── Momentum detection ────────────────────────────────────────────────
 
-    fireWheel(target, 10);   // passes
-    fireWheel(target, 20);   // blocked
-    fireWheel(target, 30);   // blocked
+  it('should detect and block momentum scrolling (decaying deltas)', async () => {
+    // First intentional scroll
+    const first = fireWheel(screen, viewport, 100);
+    expect(first.reachedViewport).toBe(true);
 
-    await new Promise((r) => setTimeout(r, THROTTLE_MS + 20));
-    fireWheel(target, 40);   // passes
+    // In jsdom, dispatchEvent is synchronous so elapsed = 0ms between calls.
+    // This means elapsed < 80 (rapid) — so momentum counter increments on decaying deltas.
+    // After MOMENTUM_THRESHOLD (3) consecutive decaying rapid events, further events are blocked.
+    // Events 2-4 are throttled (elapsed < THROTTLE_MS), but they still increment momentum counter.
+    fireWheel(screen, viewport, 50);  // rapid, decay from 100 → momentum++
+    fireWheel(screen, viewport, 40);  // rapid, decay from 50 → momentum++
+    fireWheel(screen, viewport, 30);  // rapid, decay from 40 → momentum++ (now >= MOMENTUM_THRESHOLD)
 
-    expect(received).toEqual([10, 40]);
+    // Wait past throttle to allow another event through
+    await new Promise((r) => setTimeout(r, THROTTLE_MS + 10));
+
+    // Even though throttle window has elapsed, momentum detection should block this
+    // because elapsed < MOMENTUM_RESET_MS (300ms) and momentum count >= threshold
+    const r = fireWheel(screen, viewport, 20);
+    expect(r.reachedViewport).toBe(false);
+  });
+
+  it('should reset momentum detection after a long pause', async () => {
+    fireWheel(screen, viewport, 100);
+
+    // Wait longer than MOMENTUM_RESET_MS
+    await new Promise((r) => setTimeout(r, MOMENTUM_RESET_MS + 50));
+
+    const r = fireWheel(screen, viewport, 50);
+    expect(r.reachedViewport).toBe(true);
   });
 
   // ── Scope: only affects .xterm elements ───────────────────────────────
@@ -156,7 +234,6 @@ describe('Terminal scroll handler', () => {
     const outside = document.createElement('div');
     document.body.appendChild(outside);
 
-    // Need to add parent listener for fireWheel helper — use manual check
     let reached = false;
     outside.addEventListener('wheel', () => { reached = true; });
     const ev = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
@@ -165,14 +242,12 @@ describe('Terminal scroll handler', () => {
     outside.remove();
   });
 
-  it('should not affect events on a separate non-xterm sibling', () => {
+  it('should not affect events on a non-xterm sibling', () => {
     const sibling = document.createElement('div');
     sibling.classList.add('toolbar');
     document.body.appendChild(sibling);
 
-    // Use up the throttle on the terminal
-    fireWheel(target, 50);
-    // Sibling event should still pass — check with direct listener
+    fireWheel(screen, viewport, 50);
     let reached = false;
     sibling.addEventListener('wheel', () => { reached = true; });
     const ev = new WheelEvent('wheel', { deltaY: 50, bubbles: true, cancelable: true });
@@ -185,34 +260,28 @@ describe('Terminal scroll handler', () => {
 
   it('should block ALL events when suppressScroll is true', () => {
     suppressScroll = true;
-    const { passedThrough } = fireWheel(target, 50);
-    expect(passedThrough).toBe(false);
+    const { reachedViewport } = fireWheel(screen, viewport, 50);
+    expect(reachedViewport).toBe(false);
   });
 
   it('should resume after suppressScroll is cleared', () => {
     suppressScroll = true;
-    fireWheel(target, 50); // blocked
+    fireWheel(screen, viewport, 50); // blocked
 
     suppressScroll = false;
-    const { passedThrough } = fireWheel(target, 50);
-    expect(passedThrough).toBe(true);
+    const { reachedViewport } = fireWheel(screen, viewport, 50);
+    expect(reachedViewport).toBe(true);
   });
 
-  // ── Direction: native events maintain OS scroll direction ─────────────
+  // ── Direction: synthetic events maintain correct scroll direction ──────
 
-  it('should pass positive deltaY through unchanged (scroll down)', () => {
-    const received: number[] = [];
-    target.parentElement!.addEventListener('wheel', (e) => received.push(e.deltaY));
-
-    fireWheel(target, 300);
-    expect(received).toEqual([300]);
+  it('should pass positive deltaY (scroll down) with correct sign', () => {
+    const { syntheticDeltaY } = fireWheel(screen, viewport, 300);
+    expect(syntheticDeltaY).toBeGreaterThan(0);
   });
 
-  it('should pass negative deltaY through unchanged (scroll up)', () => {
-    const received: number[] = [];
-    target.parentElement!.addEventListener('wheel', (e) => received.push(e.deltaY));
-
-    fireWheel(target, -300);
-    expect(received).toEqual([-300]);
+  it('should pass negative deltaY (scroll up) with correct sign', () => {
+    const { syntheticDeltaY } = fireWheel(screen, viewport, -300);
+    expect(syntheticDeltaY).toBeLessThan(0);
   });
 });
