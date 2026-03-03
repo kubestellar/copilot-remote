@@ -242,8 +242,6 @@ export function TerminalView({ onBack }: Props) {
   const [showTodoPanel, setShowTodoPanel] = useState(() => localStorage.getItem(TODO_PANEL_KEY) !== 'false');
   const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const intentRef = useRef<Map<string, string>>(new Map());
-  // Cache each terminal's full-viewport pixel size so we can freeze it in tile mode
-  const termNaturalSizes = useRef<Map<string, { w: number; h: number }>>(new Map());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeTabIdRef = useRef(activeTabId);
@@ -827,13 +825,14 @@ export function TerminalView({ onBack }: Props) {
   useEffect(() => {
     let lastWheel = 0;
     const handler = (e: WheelEvent) => {
-      e.preventDefault();
       const now = performance.now();
       if (now - lastWheel < 32) { // cap ~30 events/sec — smooth but no rocket scroll
+        e.preventDefault();
         e.stopImmediatePropagation();
         return;
       }
       lastWheel = now;
+      // Let xterm.js handle the event naturally for scrolling
     };
     const attached: HTMLElement[] = [];
     for (const [, el] of containerRefs.current) {
@@ -881,60 +880,26 @@ export function TerminalView({ onBack }: Props) {
     : checkedTabs.length <= 9 ? 3
     : 4;
 
-  // Capture terminal sizes when NOT in tile mode; freeze them when entering tile mode.
-  // useLayoutEffect runs synchronously before paint, so we can set fixed dimensions
-  // on .xterm elements BEFORE the browser lays out the grid (which would shrink containers).
-  useLayoutEffect(() => {
-    if (!tileMode) {
-      // In single mode: continuously update cached sizes from actual rendered dimensions
-      for (const [id, inst] of termInstances) {
-        const screen = inst.term.element?.querySelector('.xterm-screen') as HTMLElement | null;
-        if (screen && screen.offsetWidth > 0 && screen.offsetHeight > 0) {
-          termNaturalSizes.current.set(id, { w: screen.offsetWidth, h: screen.offsetHeight });
-        }
-      }
-      return;
-    }
-    // In tile mode: freeze each xterm element at its cached full-viewport size
-    // so it doesn't auto-shrink to the smaller tile cell (which would trigger xterm resize)
-    for (const [id, inst] of termInstances) {
-      const termEl = inst.term.element;
-      if (!termEl) continue;
-      // If no cached size, grab it NOW before grid layout shrinks things
-      if (!termNaturalSizes.current.has(id)) {
-        const screen = termEl.querySelector('.xterm-screen') as HTMLElement | null;
-        if (screen && screen.offsetWidth > 0) {
-          termNaturalSizes.current.set(id, { w: screen.offsetWidth, h: screen.offsetHeight });
-        }
-      }
-      const cached = termNaturalSizes.current.get(id);
-      if (cached && cached.w > 0 && cached.h > 0) {
-        termEl.style.width = cached.w + 'px';
-        termEl.style.height = cached.h + 'px';
-        termEl.style.transformOrigin = 'top left';
-      }
-    }
-  }, [tileMode, checkedTabs.length]);
-
-  // Apply CSS scaling in tile mode (no DOM reparenting, no fontSize change)
+  // Fit terminals to their containers using fitAddon (tile mode or single mode).
+  // With unified containers (no DOM reparenting), fitAddon.fit() is safe —
+  // terminals reflow to the tile cell size at normal font, no CSS scaling needed.
   useEffect(() => {
     if (!tileMode || !fontReady) {
       if (!tileMode) {
         setFocusedTileId(null);
-        // Remove CSS scaling from all terminals
-        for (const [, inst] of termInstances) {
+        // Restore any inline overrides and refit ALL terminals
+        for (const [id, inst] of termInstances) {
           if (inst.term.element) {
             inst.term.element.style.transform = '';
             inst.term.element.style.transformOrigin = '';
             inst.term.element.style.width = '';
             inst.term.element.style.height = '';
           }
-        }
-        // Fit the active terminal to fill viewport
-        const activeInst = activeTabId ? termInstances.get(activeTabId) : null;
-        if (activeInst) {
-          try { activeInst.fitAddon.fit(); } catch {}
-          activeInst.term.refresh(0, activeInst.term.rows - 1);
+          // Fit the active (visible) terminal immediately; others on next tab switch
+          if (id === activeTabId) {
+            try { inst.fitAddon.fit(); } catch {}
+            inst.term.refresh(0, inst.term.rows - 1);
+          }
         }
       }
       return;
@@ -959,9 +924,8 @@ export function TerminalView({ onBack }: Props) {
       }
     }
 
-    const applyScaling = () => {
+    const fitTiles = () => {
       if (cancelled) return;
-      suppressPtyResize = true;
       const checked = tabsRef.current.filter(t => t.checked);
 
       for (const tab of checked) {
@@ -971,45 +935,39 @@ export function TerminalView({ onBack }: Props) {
         if (!inst?.term.element) continue;
 
         const termEl = inst.term.element;
-        termEl.style.transformOrigin = 'top left';
+        // Clear any leftover inline styles from previous approaches
+        termEl.style.transform = '';
+        termEl.style.transformOrigin = '';
+        termEl.style.width = '';
+        termEl.style.height = '';
 
-        // Use cached full-viewport size (frozen by useLayoutEffect above)
-        const cached = termNaturalSizes.current.get(tab.id);
-        const naturalW = cached?.w || termEl.offsetWidth;
-        const naturalH = cached?.h || termEl.offsetHeight;
-        // Re-freeze in case layout changed
-        termEl.style.width = naturalW + 'px';
-        termEl.style.height = naturalH + 'px';
+        // fitAddon.fit() resizes cols/rows to match the tile cell at current font.
+        // PTY resize IS sent so the remote app redraws at the correct width.
+        try { inst.fitAddon.fit(); } catch {}
+        inst.term.refresh(0, inst.term.rows - 1);
 
-        const containerW = container.clientWidth;
-        const containerH = container.clientHeight;
-        if (containerW <= 0 || containerH <= 0 || naturalW <= 0 || naturalH <= 0) continue;
-
-        const scale = Math.min(containerW / naturalW, containerH / naturalH, 1);
-        termEl.style.transform = `scale(${scale})`;
-
-        // Wheel throttle for macOS trackpad
+        // Wheel throttle for macOS trackpad — only throttle timing,
+        // don't block scroll from reaching xterm.js
         let lastWheel = 0;
         const wheelHandler = (e: WheelEvent) => {
-          e.preventDefault();
-          e.stopPropagation();
           const now = performance.now();
           if (now - lastWheel < 32) {
+            e.preventDefault();
             e.stopImmediatePropagation();
             return;
           }
           lastWheel = now;
+          // Let xterm.js handle the event naturally
         };
         container.addEventListener('wheel', wheelHandler, { capture: true, passive: false });
         wheelHandlers.push({ el: container, handler: wheelHandler });
       }
-      suppressPtyResize = false;
     };
 
-    // Apply after layout settles
+    // Apply after layout settles (two rAFs for grid to be fully rendered)
     requestAnimationFrame(() => {
       if (!cancelled) requestAnimationFrame(() => {
-        if (!cancelled) applyScaling();
+        if (!cancelled) fitTiles();
       });
     });
 
