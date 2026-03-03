@@ -1,7 +1,33 @@
 /**
  * Tests for TerminalWriter — RAF batching, DEC 2026 sync output, and backpressure.
+ *
+ * These tests verify the core rocket-scroll prevention: data arriving from
+ * PTY is batched per animation frame, DEC 2026 synchronized output blocks
+ * are flushed atomically, and backpressure pauses the data source when
+ * xterm.js falls behind.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// ── Polyfill rAF / cAF for jsdom (not provided by default) ─────────────
+const rafCallbacks: Array<{ id: number; cb: FrameRequestCallback }> = [];
+let rafCounter = 0;
+
+globalThis.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+  const id = ++rafCounter;
+  rafCallbacks.push({ id, cb });
+  return id;
+};
+
+globalThis.cancelAnimationFrame = (id: number): void => {
+  const idx = rafCallbacks.findIndex(r => r.id === id);
+  if (idx !== -1) rafCallbacks.splice(idx, 1);
+};
+
+/** Run all pending rAF callbacks (simulates one frame) */
+function flushRAF() {
+  const pending = rafCallbacks.splice(0);
+  pending.forEach(({ cb }) => cb(performance.now()));
+}
 
 // ── Mock Terminal ───────────────────────────────────────────────────────
 class MockTerminal {
@@ -122,14 +148,6 @@ class TerminalWriter {
   get isSyncMode() { return this.syncMode; }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-/** Flush pending RAF callbacks by running microtask + rAF simulation */
-async function flushRAF() {
-  // jsdom supports rAF via setTimeout(0), so advance timers
-  await new Promise(r => setTimeout(r, 20));
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────
 describe('TerminalWriter', () => {
   let term: MockTerminal;
@@ -146,7 +164,7 @@ describe('TerminalWriter', () => {
 
   // ── RAF Batching ───────────────────────────────────────────────────────
 
-  it('should batch multiple writes into one RAF flush', async () => {
+  it('should batch multiple writes into one RAF flush', () => {
     writer.write('hello');
     writer.write(' world');
     writer.write('!');
@@ -154,26 +172,26 @@ describe('TerminalWriter', () => {
     // Before RAF fires, nothing written to terminal
     expect(term.written.length).toBe(0);
 
-    await flushRAF();
+    flushRAF();
 
     // All data combined into one write
     expect(term.written.length).toBe(1);
     expect(term.written[0].data).toBe('hello world!');
   });
 
-  it('should write with callback for backpressure tracking', async () => {
+  it('should write with callback for backpressure tracking', () => {
     writer.write('test');
-    await flushRAF();
+    flushRAF();
 
     expect(term.written[0].hasCallback).toBe(true);
   });
 
-  it('should handle multiple frames independently', async () => {
+  it('should handle multiple frames independently', () => {
     writer.write('frame1');
-    await flushRAF();
+    flushRAF();
 
     writer.write('frame2');
-    await flushRAF();
+    flushRAF();
 
     expect(term.written.length).toBe(2);
     expect(term.written[0].data).toBe('frame1');
@@ -182,61 +200,61 @@ describe('TerminalWriter', () => {
 
   // ── DEC 2026 Synchronized Output ──────────────────────────────────────
 
-  it('should buffer data during sync mode (DEC 2026)', async () => {
+  it('should buffer data during sync mode (DEC 2026)', () => {
     writer.write('\x1b[?2026h');  // begin sync
     writer.write('buffered line 1\n');
     writer.write('buffered line 2\n');
 
-    await flushRAF();
+    flushRAF();
 
     // Nothing written yet — still in sync mode
     expect(term.written.length).toBe(0);
     expect(writer.isSyncMode).toBe(true);
   });
 
-  it('should flush atomically when sync ends', async () => {
+  it('should flush atomically when sync ends', () => {
     writer.write('\x1b[?2026h');
     writer.write('line1\n');
     writer.write('line2\n');
     writer.write('\x1b[?2026l');  // end sync
 
-    await flushRAF();
+    flushRAF();
 
     expect(term.written.length).toBe(1);
     expect(term.written[0].data).toBe('line1\nline2\n');
     expect(writer.isSyncMode).toBe(false);
   });
 
-  it('should handle sync start and end in same chunk', async () => {
+  it('should handle sync start and end in same chunk', () => {
     writer.write('\x1b[?2026hatomic content\x1b[?2026l');
-    await flushRAF();
+    flushRAF();
 
     expect(term.written.length).toBe(1);
     expect(term.written[0].data).toBe('atomic content');
   });
 
-  it('should handle data before sync start', async () => {
+  it('should handle data before sync start', () => {
     writer.write('before\x1b[?2026hsynced\x1b[?2026lafter');
-    await flushRAF();
+    flushRAF();
 
     // "before" is enqueued first, then "synced", then "after" — but all in same RAF
     expect(term.written.length).toBe(1);
     expect(term.written[0].data).toBe('beforesyncedafter');
   });
 
-  it('should handle multiple sync blocks', async () => {
+  it('should handle multiple sync blocks', () => {
     writer.write('\x1b[?2026hblock1\x1b[?2026l');
-    await flushRAF();
+    flushRAF();
     expect(term.written[0].data).toBe('block1');
 
     writer.write('\x1b[?2026hblock2\x1b[?2026l');
-    await flushRAF();
+    flushRAF();
     expect(term.written[1].data).toBe('block2');
   });
 
   // ── Backpressure ──────────────────────────────────────────────────────
 
-  it('should trigger pause when watermark exceeds HIGH', async () => {
+  it('should trigger pause when watermark exceeds HIGH', () => {
     const onPause = vi.fn();
     const onResume = vi.fn();
     writer.setFlowCallbacks(onPause, onResume);
@@ -244,20 +262,20 @@ describe('TerminalWriter', () => {
     // Write more than HIGH_WATER (128KB)
     const largeData = 'x'.repeat(130_000);
     writer.write(largeData);
-    await flushRAF();
+    flushRAF();
 
     expect(onPause).toHaveBeenCalledOnce();
     expect(writer.isPaused).toBe(true);
   });
 
-  it('should trigger resume when watermark drops below LOW', async () => {
+  it('should trigger resume when watermark drops below LOW', () => {
     const onPause = vi.fn();
     const onResume = vi.fn();
     writer.setFlowCallbacks(onPause, onResume);
 
     const largeData = 'x'.repeat(130_000);
     writer.write(largeData);
-    await flushRAF();
+    flushRAF();
 
     expect(writer.isPaused).toBe(true);
 
@@ -268,12 +286,12 @@ describe('TerminalWriter', () => {
     expect(writer.isPaused).toBe(false);
   });
 
-  it('should not trigger pause for small writes', async () => {
+  it('should not trigger pause for small writes', () => {
     const onPause = vi.fn();
     writer.setFlowCallbacks(onPause, () => {});
 
     writer.write('small data');
-    await flushRAF();
+    flushRAF();
 
     expect(onPause).not.toHaveBeenCalled();
     expect(writer.isPaused).toBe(false);
