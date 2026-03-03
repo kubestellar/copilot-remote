@@ -16,7 +16,7 @@ const tileXtermStyles = document.createElement('style');
 tileXtermStyles.textContent = `
   .tile-xterm-container .xterm { height: 100% !important; width: 100% !important; }
   .tile-xterm-container .xterm-screen { width: 100% !important; }
-  .xterm-viewport { overflow-y: scroll !important; scrollbar-width: none !important; }
+  .xterm-viewport { overflow-y: scroll !important; scrollbar-width: none !important; overflow-anchor: auto !important; }
   .xterm-viewport::-webkit-scrollbar { display: none !important; }
   .drag-over-highlight { outline: 2px dashed #58a6ff !important; outline-offset: -2px; position: relative; }
   .drag-over-highlight::after {
@@ -77,7 +77,7 @@ const termInstances = new Map<string, {
   container: HTMLDivElement | null;
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
-  throttler: WriteThrottler;
+  writer: TerminalWriter;
 }>();
 
 // When true, fitAddon.fit() still adjusts rendering but resize is NOT sent to the PTY.
@@ -171,45 +171,120 @@ function saveCheckedSessions(tabs: TermTab[]) {
 }
 
 /**
- * Batches rapid terminal output to prevent "rocket scroll" from agent CLIs.
- * When output arrives faster than FLUSH_INTERVAL, chunks are queued and
- * flushed at a steady rate so the UI stays smooth.
+ * Batches terminal output using requestAnimationFrame and supports DEC Mode 2026
+ * (synchronized output) to prevent "rocket scroll" from AI CLI tools.
+ *
+ * Three layers of protection:
+ * 1. RAF batching — accumulates all WebSocket data within a frame, writes once per frame
+ * 2. DEC 2026 sync — detects \x1b[?2026h (begin) / \x1b[?2026l (end) sequences,
+ *    buffers all data during sync blocks and flushes atomically when sync ends
+ * 3. Backpressure — tracks unprocessed bytes via write callbacks, can signal
+ *    upstream to pause when buffer exceeds HIGH watermark
  */
-class WriteThrottler {
+class TerminalWriter {
   private queue = '';
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private static readonly FLUSH_INTERVAL = 16; // ~60fps
-  private static readonly BURST_THRESHOLD = 4096; // bytes in queue to start batching
+  private rafId: number | null = null;
+  private syncMode = false;  // DEC 2026 synchronized output active
+  private syncBuffer = '';   // buffered data during sync mode
+  private watermark = 0;
+  private paused = false;
+  private onPause: (() => void) | null = null;
+  private onResume: (() => void) | null = null;
+
+  // Backpressure watermarks (bytes pending in xterm.js write buffer)
+  private static readonly HIGH_WATER = 128_000;  // 128KB — pause upstream
+  private static readonly LOW_WATER = 16_000;    // 16KB — resume upstream
+
+  // DEC 2026 synchronized output escape sequences
+  private static readonly SYNC_START = '\x1b[?2026h';
+  private static readonly SYNC_END = '\x1b[?2026l';
 
   constructor(private term: Terminal) {}
 
+  /** Set callbacks for flow control signaling to upstream (WebSocket/PTY) */
+  setFlowCallbacks(onPause: () => void, onResume: () => void) {
+    this.onPause = onPause;
+    this.onResume = onResume;
+  }
+
   write(data: string) {
-    this.queue += data;
-    if (!this.timer) {
-      // If queue is small, write immediately for low-latency feel
-      if (this.queue.length < WriteThrottler.BURST_THRESHOLD) {
-        this.flush();
+    // Check for DEC 2026 synchronized output sequences
+    const startIdx = data.indexOf(TerminalWriter.SYNC_START);
+    const endIdx = data.indexOf(TerminalWriter.SYNC_END);
+
+    if (startIdx !== -1 && !this.syncMode) {
+      // Sync start found — flush anything before it, then enter sync mode
+      if (startIdx > 0) this.enqueue(data.slice(0, startIdx));
+      this.syncMode = true;
+      // Feed the remainder (after sync start) back through write() to handle
+      // potential sync end in the same chunk
+      const remainder = data.slice(startIdx + TerminalWriter.SYNC_START.length);
+      if (remainder) this.write(remainder);
+      return;
+    }
+
+    if (this.syncMode) {
+      if (endIdx !== -1) {
+        // Sync end found — buffer everything up to it, then flush atomically
+        this.syncBuffer += data.slice(0, endIdx);
+        this.syncMode = false;
+        // Flush the entire sync block as one atomic write
+        this.enqueue(this.syncBuffer);
+        this.syncBuffer = '';
+        // Process any remaining data after the sync end
+        const after = data.slice(endIdx + TerminalWriter.SYNC_END.length);
+        if (after) this.write(after);
       } else {
-        this.timer = setTimeout(() => this.flush(), WriteThrottler.FLUSH_INTERVAL);
+        // Still in sync mode — keep buffering
+        this.syncBuffer += data;
       }
+      return;
+    }
+
+    this.enqueue(data);
+  }
+
+  private enqueue(data: string) {
+    this.queue += data;
+    this.scheduleFlush();
+  }
+
+  private scheduleFlush() {
+    if (this.rafId === null) {
+      this.rafId = requestAnimationFrame(() => this.flush());
     }
   }
 
   private flush() {
-    this.timer = null;
-    if (this.queue) {
-      const data = this.queue;
-      this.queue = '';
-      this.term.write(data);
-      // If more data accumulated during write, schedule next flush
-      if (this.queue) {
-        this.timer = setTimeout(() => this.flush(), WriteThrottler.FLUSH_INTERVAL);
-      }
+    this.rafId = null;
+    if (!this.queue) return;
+
+    const data = this.queue;
+    this.queue = '';
+    this.watermark += data.length;
+
+    // Check if we need to signal backpressure
+    if (!this.paused && this.watermark > TerminalWriter.HIGH_WATER) {
+      this.paused = true;
+      this.onPause?.();
     }
+
+    this.term.write(data, () => {
+      this.watermark = Math.max(0, this.watermark - data.length);
+      if (this.paused && this.watermark < TerminalWriter.LOW_WATER) {
+        this.paused = false;
+        this.onResume?.();
+      }
+    });
+
+    // If more data accumulated during write, schedule another flush
+    if (this.queue) this.scheduleFlush();
   }
 
   dispose() {
-    if (this.timer) clearTimeout(this.timer);
+    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+    // Flush remaining data synchronously
+    if (this.syncBuffer) { this.queue += this.syncBuffer; this.syncBuffer = ''; }
     if (this.queue) { this.term.write(this.queue); this.queue = ''; }
   }
 }
@@ -399,8 +474,8 @@ export function TerminalView({ onBack }: Props) {
     });
 
     const ws = new WebSocket(`${wsUrl}/ws/terminal?token=${token}&id=${tabId}`);
-    const throttler = new WriteThrottler(term);
-    const inst = { term, fitAddon, ws, connected: false, container, reconnectAttempts: 0, reconnectTimer: null as ReturnType<typeof setTimeout> | null, throttler };
+    const writer = new TerminalWriter(term);
+    const inst = { term, fitAddon, ws, connected: false, container, reconnectAttempts: 0, reconnectTimer: null as ReturnType<typeof setTimeout> | null, writer };
     termInstances.set(tabId, inst);
 
     ws.onopen = () => {
@@ -409,6 +484,12 @@ export function TerminalView({ onBack }: Props) {
       ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       setTabs(prev => [...prev]); // trigger re-render for status dot
     };
+
+    // Wire up flow control: pause/resume PTY via WebSocket messages
+    writer.setFlowCallbacks(
+      () => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'pause' })); },
+      () => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resume' })); },
+    );
 
     ws.onmessage = (e) => {
       try {
@@ -451,7 +532,7 @@ export function TerminalView({ onBack }: Props) {
           } catch {}
         }
       }
-      throttler.write(e.data);
+      writer.write(e.data);
     };
 
     ws.onclose = () => {
@@ -523,7 +604,7 @@ export function TerminalView({ onBack }: Props) {
       if (inst) {
         inst.ws?.close();
         inst.term?.dispose();
-        inst.throttler?.dispose();
+        inst.writer?.dispose();
         if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
         termInstances.delete(tabId);
       }
@@ -708,7 +789,7 @@ export function TerminalView({ onBack }: Props) {
       inst.reconnectAttempts = 999; // prevent reconnect on close
       inst.ws?.close();
       inst.term?.dispose();
-      inst.throttler?.dispose();
+      inst.writer?.dispose();
       termInstances.delete(id);
     }
     fetch(`${serverUrl}/api/terminals/${id}`, {
@@ -828,7 +909,7 @@ export function TerminalView({ onBack }: Props) {
       for (const [, inst] of termInstances) {
         if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
         inst.ws?.close();
-        inst.throttler?.dispose();
+        inst.writer?.dispose();
         inst.term?.dispose();
       }
       termInstances.clear();
@@ -1061,7 +1142,8 @@ export function TerminalView({ onBack }: Props) {
         // Reduce font and fit to tile container — no PTY resize
         inst.term.options.fontSize = tileFontSize;
         try { inst.fitAddon.fit(); } catch {}
-        inst.term.scrollToBottom();
+        // Defer scrollToBottom to avoid fighting with rapid terminal output redraws
+        setTimeout(() => inst.term.scrollToBottom(), 50);
       }
       suppressPtyResize = false;
     };

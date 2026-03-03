@@ -516,8 +516,9 @@ termWss.on('connection', (ws, req) => {
   }
 
   // Forward PTY output → WebSocket
+  let ptyPaused = false;
   const onData = (id: string, data: string) => {
-    if (id === termId && ws.readyState === WebSocket.OPEN) {
+    if (id === termId && ws.readyState === WebSocket.OPEN && !ptyPaused) {
       ws.send(data);
     }
   };
@@ -553,6 +554,15 @@ termWss.on('connection', (ws, req) => {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
         terminalManager.resize(termId, parsed.cols, parsed.rows);
+        return;
+      }
+      // Flow control: frontend signals backpressure
+      if (parsed.type === 'pause') {
+        ptyPaused = true;
+        return;
+      }
+      if (parsed.type === 'resume') {
+        ptyPaused = false;
         return;
       }
       if (parsed.type === 'watch-prompt') {
