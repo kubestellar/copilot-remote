@@ -895,11 +895,18 @@ export function TerminalView({ onBack }: Props) {
       }
       return;
     }
-    // Entering tile mode: freeze each xterm element at its cached full-viewport size
+    // In tile mode: freeze each xterm element at its cached full-viewport size
     // so it doesn't auto-shrink to the smaller tile cell (which would trigger xterm resize)
     for (const [id, inst] of termInstances) {
       const termEl = inst.term.element;
       if (!termEl) continue;
+      // If no cached size, grab it NOW before grid layout shrinks things
+      if (!termNaturalSizes.current.has(id)) {
+        const screen = termEl.querySelector('.xterm-screen') as HTMLElement | null;
+        if (screen && screen.offsetWidth > 0) {
+          termNaturalSizes.current.set(id, { w: screen.offsetWidth, h: screen.offsetHeight });
+        }
+      }
       const cached = termNaturalSizes.current.get(id);
       if (cached && cached.w > 0 && cached.h > 0) {
         termEl.style.width = cached.w + 'px';
@@ -907,7 +914,7 @@ export function TerminalView({ onBack }: Props) {
         termEl.style.transformOrigin = 'top left';
       }
     }
-  }, [tileMode]);
+  }, [tileMode, checkedTabs.length]);
 
   // Apply CSS scaling in tile mode (no DOM reparenting, no fontSize change)
   useEffect(() => {
@@ -936,7 +943,7 @@ export function TerminalView({ onBack }: Props) {
     let cancelled = false;
     const wheelHandlers: Array<{ el: HTMLElement; handler: (e: WheelEvent) => void }> = [];
 
-    // Auto-set focused tile
+    // Auto-set focused tile and sync activeTabId to match
     const checked = tabsRef.current.filter(t => t.checked);
     if (checked.length > 0) {
       setFocusedTileId(prev => {
@@ -945,6 +952,11 @@ export function TerminalView({ onBack }: Props) {
         if (active && checked.some(t => t.id === active)) return active;
         return checked[0].id;
       });
+      // Ensure activeTabId is among checked tiles (so tab bar highlights correctly)
+      const currentActive = activeTabIdRef.current;
+      if (!currentActive || !checked.some(t => t.id === currentActive)) {
+        setActiveTabId(checked[0].id);
+      }
     }
 
     const applyScaling = () => {
@@ -1167,7 +1179,7 @@ export function TerminalView({ onBack }: Props) {
             const inst = termInstances.get(tab.id);
             const isConnected = inst?.connected ?? false;
             const hasConnected = !!inst; // true if WS was ever created
-            const isActive = tab.id === activeTabId;
+            const isActive = tileMode ? (tab.id === (focusedTileId || activeTabId)) : (tab.id === activeTabId);
             return (
               <Box
                 key={tab.id}
@@ -1425,15 +1437,21 @@ export function TerminalView({ onBack }: Props) {
             ? tab.checked
             : tab.id === activeTabId;
           const isTile = tileMode && hasChecked && tab.checked;
+          // In single mode, inactive tabs use visibility:hidden (not display:none)
+          // so xterm elements maintain full-viewport dimensions for size caching.
+          // In tile mode, unchecked tabs use display:none to avoid taking grid cells.
+          const isHiddenSingle = !tileMode && tab.id !== activeTabId;
+          const isHiddenTile = tileMode && hasChecked && !tab.checked;
 
           return (
             <div
               key={tab.id}
               style={{
-                display: isVisible ? 'flex' : 'none',
+                display: isHiddenTile ? 'none' : 'flex',
                 flexDirection: 'column',
                 background: '#0d1117',
                 minHeight: 0, minWidth: 0, overflow: 'hidden',
+                ...(isHiddenSingle ? { visibility: 'hidden', pointerEvents: 'none' } : {}),
                 // Single mode: fill entire parent
                 ...(!isTile ? {
                   position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
