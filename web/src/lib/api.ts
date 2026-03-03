@@ -74,4 +74,10 @@ export const api = {
       body: JSON.stringify({ filename: file.name, data: base64Data, mimeType: file.type }),
     });
   },
+
+  checkUpdate: () =>
+    request<{ updateAvailable: boolean; currentCommit: string; latestCommit: string; behindBy: number; dirty: boolean }>('/api/update/check'),
+
+  applyUpdate: () =>
+    request<{ success: boolean; message: string }>('/api/update/apply', { method: 'POST' }),
 };

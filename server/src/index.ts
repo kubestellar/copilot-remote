@@ -16,6 +16,7 @@ import swarmRouter from './swarm-router.js';
 import { loadSwarmKeys, generateSwarmKey, revokeSwarmKey, setSwarmEnabled, isSwarmEnabled } from './swarm-keys.js';
 import { loadBlocklist as loadSwarmBlocklist } from './swarm-blocklist.js';
 import { swarmTunnel } from './swarm-tunnel.js';
+import { checkForUpdate, applyUpdate } from './update-manager.js';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -516,6 +517,25 @@ app.post('/api/swarm/tunnel/start', async (_req, res) => {
 app.post('/api/swarm/tunnel/stop', (_req, res) => {
   swarmTunnel.stop();
   res.json({ stopped: true });
+});
+
+// Self-update endpoints
+app.get('/api/update/check', (_req, res) => {
+  try {
+    const result = checkForUpdate();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/update/apply', (_req, res) => {
+  try {
+    const result = applyUpdate();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Serve built frontend (production)

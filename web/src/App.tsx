@@ -5,6 +5,7 @@ import { SessionList } from './components/SessionList';
 import { ChatView } from './components/ChatView';
 import { TerminalView } from './components/TerminalView';
 import { ConnectionStatus } from './components/ConnectionStatus';
+import { UpdateButton } from './components/UpdateButton';
 import { NewSessionDialog } from './components/NewSessionDialog';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useSessions } from './hooks/useSessions';
@@ -194,6 +195,7 @@ export default function App() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
           <Text sx={{ fontWeight: 'bold', fontSize: 2, color: 'fg.default' }}>⚡ Copilot Remote</Text>
           <Box sx={{ flex: 1 }} />
+          <UpdateButton />
           <ConnectionStatus connected={connected} />
         </Box>
         <UnderlineNav aria-label="Main navigation">
