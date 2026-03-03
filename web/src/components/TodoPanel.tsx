@@ -653,8 +653,8 @@ export default function TodoPanel({
             style={{
               background: 'var(--bgColor-default, #0d1117)',
               border: '1px solid var(--borderColor-default, #30363d)',
-              borderRadius: 12, padding: 20, width: '90vw', maxWidth: 560,
-              maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12,
+              borderRadius: 12, padding: 20, width: '95vw', maxWidth: 1120,
+              maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 12,
               boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
             }}
           >
@@ -751,7 +751,14 @@ export default function TodoPanel({
                 {aiSuggestion && (
                   <button
                     type="button"
-                    onClick={() => { setEditingValue(aiSuggestion); setAiSuggestion(''); }}
+                    onClick={() => {
+                      // Strip AI preamble like "Here's the improved prompt:\n---\n"
+                      let cleaned = aiSuggestion;
+                      cleaned = cleaned.replace(/^.*?improved.*?prompt[:\s]*[-—]{2,}\s*/is, '');
+                      cleaned = cleaned.replace(/^.*?improved.*?prompt[:\s]*\n+/i, '');
+                      setEditingValue(cleaned.trim());
+                      setAiSuggestion('');
+                    }}
                     style={{
                       padding: '6px 12px', borderRadius: 6,
                       border: '1px solid #1f6feb', background: 'transparent',
