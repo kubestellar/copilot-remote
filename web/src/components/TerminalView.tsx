@@ -286,12 +286,10 @@ export function TerminalView({ onBack }: Props) {
       ? Math.max(MIN_FONT_SIZE, globalFontSize - (checkedTabs.length >= 2 ? 3 : 1))
       : globalFontSize;
 
-    const prevSuppressPtyResize = suppressPtyResize;
-    if (isTiled) suppressPtyResize = true;
-
     for (const [, inst] of termInstances) {
       inst.term.options.fontSize = fontSize;
     }
+    // Allow PTY resize through so tmux adjusts cols/rows to new font metrics
     requestAnimationFrame(() => {
       for (const [, inst] of termInstances) {
         try {
@@ -299,7 +297,6 @@ export function TerminalView({ onBack }: Props) {
           inst.term.refresh(0, inst.term.rows - 1);
         } catch {}
       }
-      if (isTiled) suppressPtyResize = prevSuppressPtyResize;
     });
   }, [globalFontSize, tileMode, tabs]);
 
