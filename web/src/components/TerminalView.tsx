@@ -854,20 +854,23 @@ export function TerminalView({ onBack }: Props) {
     return () => window.removeEventListener('resize', handleResize);
   }, [tileMode]);
 
-  // Prevent macOS trackpad momentum "rocket scroll" by intercepting ALL wheel
-  // events on terminals. Instead of letting events reach xterm.js (which would
-  // send mouse escape sequences to tmux causing uncontrollable scroll), we block
-  // everything and manually call term.scrollLines() for xterm.js scrollback.
+  // Prevent macOS trackpad momentum "rocket scroll" while preserving normal
+  // scrollback. We intercept wheel events on terminals, clamp deltaY to a sane
+  // maximum, throttle the rate, then re-dispatch a synthetic event so xterm.js
+  // handles both its own scrollback buffer AND mouse-sequence forwarding to tmux.
   useEffect(() => {
     let lastWheel = 0;
-    const THROTTLE_MS = 120; // ~8 scroll actions/sec
-    const SCROLL_LINES = 3;  // lines per allowed scroll event
+    const THROTTLE_MS = 80;   // ~12 scroll actions/sec — smooth but prevents momentum flood
+    const MAX_DELTA_Y = 150;  // cap pixel delta to limit momentum extremes
 
     const handler = (e: WheelEvent) => {
+      // Let our synthetic clamped events pass through to xterm.js
+      if ((e as any).__clampedScroll) return;
+
       const target = e.target as HTMLElement;
       if (!target?.closest?.('.xterm')) return;
 
-      // Block ALL wheel events — no events reach xterm.js or tmux
+      // Block the original (possibly momentum-inflated) event
       e.preventDefault();
       e.stopImmediatePropagation();
 
@@ -875,14 +878,23 @@ export function TerminalView({ onBack }: Props) {
       if (now - lastWheel < THROTTLE_MS) return;
       lastWheel = now;
 
-      // Find the terminal instance that owns this .xterm element
-      const xtermEl = target.closest('.xterm') as HTMLElement;
-      for (const [, inst] of termInstances) {
-        if (inst.term.element === xtermEl) {
-          inst.term.scrollLines(Math.sign(e.deltaY) * SCROLL_LINES);
-          break;
-        }
-      }
+      // Re-dispatch with clamped deltaY so xterm.js handles scrollback
+      // AND forwards mouse sequences to tmux naturally
+      const clampedDeltaY = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), MAX_DELTA_Y);
+      const synth = new WheelEvent('wheel', {
+        deltaX: e.deltaX,
+        deltaY: clampedDeltaY,
+        deltaZ: e.deltaZ,
+        deltaMode: e.deltaMode,
+        bubbles: true,
+        cancelable: true,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        screenX: e.screenX,
+        screenY: e.screenY,
+      });
+      Object.defineProperty(synth, '__clampedScroll', { value: true });
+      target.dispatchEvent(synth);
     };
     document.addEventListener('wheel', handler, { capture: true, passive: false } as any);
     return () => {
