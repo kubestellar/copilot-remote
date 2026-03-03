@@ -7,6 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "postinstall": "chmod +x ../node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
@@ -22,6 +24,7 @@
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.5.13",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
   }
 }
