@@ -1011,67 +1011,17 @@ export function TerminalView({ onBack }: Props) {
     return () => window.removeEventListener('resize', handleResize);
   }, [tileMode]);
 
-  // Prevent macOS trackpad momentum "rocket scroll" while preserving normal
-  // scroll in tmux. Strategy: only BLOCK bad events (momentum, throttled,
-  // font-change) and let good events pass through as native trusted events.
-  // This preserves xterm.js mouse mode handling (tmux scroll) which requires
-  // isTrusted=true events that synthetic re-dispatch cannot provide.
+  // Block wheel events only during font-size changes (which trigger fitAddon.fit()
+  // that can cause internal scroll jumps). Normal trackpad scrolling is allowed
+  // through to xterm.js for scrollback and tmux mouse mode handling.
+  // Rocket scroll prevention is handled by TerminalWriter's scrollTop save/restore.
   useEffect(() => {
-    let lastWheel = 0;
-    let lastAbsDelta = 0;
-    let momentumCount = 0;
-    const THROTTLE_MS = 120;       // max ~8 scroll events/sec
-    const MOMENTUM_THRESHOLD = 3;  // consecutive decaying events to trigger momentum lock
-    const MOMENTUM_RESET_MS = 300; // pause before resetting momentum detection
-
     const handler = (e: WheelEvent) => {
+      if (!suppressScroll) return;
       const target = e.target as HTMLElement;
-      const xtermEl = target?.closest?.('.xterm');
-      if (!xtermEl) return;
-
-      // During font changes, block all scroll entirely
-      if (suppressScroll) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-
-      const now = performance.now();
-      const elapsed = now - lastWheel;
-      const absDelta = Math.abs(e.deltaY);
-
-      // Momentum detection: rapid events with decaying or tiny deltas
-      if (elapsed < 80 && absDelta > 0) {
-        if (absDelta <= lastAbsDelta || absDelta < 4) {
-          momentumCount++;
-        } else {
-          momentumCount = 0;
-        }
-      } else if (elapsed >= MOMENTUM_RESET_MS) {
-        // Long pause — user lifted finger, reset momentum tracking
-        momentumCount = 0;
-      }
-
-      lastAbsDelta = absDelta;
-
-      // If we've detected momentum scrolling, block completely
-      if (momentumCount >= MOMENTUM_THRESHOLD) {
-        e.preventDefault();
-        e.stopPropagation();
-        lastWheel = now;
-        return;
-      }
-
-      // Throttle: only allow one scroll event per THROTTLE_MS
-      if (elapsed < THROTTLE_MS) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-
-      // Event passes all checks — let it through as a native trusted event
-      // so xterm.js can process it for scrollback and tmux mouse mode
-      lastWheel = now;
+      if (!target?.closest?.('.xterm')) return;
+      e.preventDefault();
+      e.stopPropagation();
     };
     document.addEventListener('wheel', handler, { capture: true, passive: false } as any);
     return () => {
@@ -1437,7 +1387,7 @@ export function TerminalView({ onBack }: Props) {
                       }}
                     />
                   ) : (
-                    <Text sx={{ fontSize: '11px', color: 'fg.default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'mono' }}>
+                    <Text sx={{ fontSize: '11px', color: isActive ? '#ffffff' : 'fg.default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'mono' }}>
                       {tab.name}
                     </Text>
                   )}
@@ -1447,7 +1397,7 @@ export function TerminalView({ onBack }: Props) {
                     as="button"
                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); todoDispatcherRef.current.addItem(tab.lastCommand!); }}
                     title={`Queue: ${tab.lastCommand}`}
-                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: 'accent.fg' } }}
+                    sx={{ bg: 'transparent', border: 'none', color: isActive ? 'rgba(255,255,255,0.7)' : 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: isActive ? '#ffffff' : 'accent.fg' } }}
                   >
                     <ListUnorderedIcon size={12} />
                   </Box>
@@ -1457,7 +1407,7 @@ export function TerminalView({ onBack }: Props) {
                     as="button"
                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); summarizeTab(tab.id); }}
                     title="AI summarize session"
-                    sx={{ bg: 'transparent', border: 'none', color: summarizingTabId === tab.id ? 'accent.fg' : 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, opacity: summarizingTabId === tab.id ? 0.6 : 1, ':hover': { color: 'accent.fg' } }}
+                    sx={{ bg: 'transparent', border: 'none', color: summarizingTabId === tab.id ? 'accent.fg' : isActive ? 'rgba(255,255,255,0.7)' : 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, opacity: summarizingTabId === tab.id ? 0.6 : 1, ':hover': { color: isActive ? '#ffffff' : 'accent.fg' } }}
                   >
                     <SparkleIcon size={12} />
                   </Box>
@@ -1467,7 +1417,7 @@ export function TerminalView({ onBack }: Props) {
                     as="button"
                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); closeAndTerminateTab(tab.id); }}
                     title="Terminate tmux session"
-                    sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: 'danger.fg' } }}
+                    sx={{ bg: 'transparent', border: 'none', color: isActive ? 'rgba(255,255,255,0.7)' : 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: isActive ? '#ff7b72' : 'danger.fg' } }}
                   >
                     <TrashIcon size={12} />
                   </Box>
@@ -1475,7 +1425,7 @@ export function TerminalView({ onBack }: Props) {
                 <Box
                   as="button"
                   onClick={(e: React.MouseEvent) => { e.stopPropagation(); closeTab(tab.id); }}
-                  sx={{ bg: 'transparent', border: 'none', color: 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: 'danger.fg' } }}
+                  sx={{ bg: 'transparent', border: 'none', color: isActive ? 'rgba(255,255,255,0.7)' : 'fg.muted', cursor: 'pointer', p: 0, ml: 1, display: 'flex', flexShrink: 0, ':hover': { color: isActive ? '#ff7b72' : 'danger.fg' } }}
                 >
                   <XIcon size={12} />
                 </Box>
