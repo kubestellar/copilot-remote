@@ -282,11 +282,17 @@ export function TerminalView({ onBack }: Props) {
     for (const [, inst] of termInstances) {
       inst.term.options.fontSize = globalFontSize;
     }
-    // Delay fit until after xterm.js re-renders with new font metrics
+    // xterm.js needs TWO animation frames: one to render new font glyphs,
+    // then another to measure the updated cell dimensions for fit().
     requestAnimationFrame(() => {
-      for (const [, inst] of termInstances) {
-        try { inst.fitAddon.fit(); } catch {}
-      }
+      requestAnimationFrame(() => {
+        for (const [, inst] of termInstances) {
+          try {
+            inst.fitAddon.fit();
+            inst.term.refresh(0, inst.term.rows - 1);
+          } catch {}
+        }
+      });
     });
   }, [globalFontSize, tileMode]);
 
@@ -1277,6 +1283,40 @@ export function TerminalView({ onBack }: Props) {
         <Box sx={{ flex: 1 }} />
         {/* Action buttons — centered */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+          {/* Font size controls */}
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}>
+            <button
+              type="button"
+              aria-label="Decrease font size (⌘-)"
+              title={`Decrease font size (${globalFontSize}px)`}
+              disabled={globalFontSize <= MIN_FONT_SIZE}
+              onClick={() => setGlobalFontSize(s => Math.max(MIN_FONT_SIZE, s - 1))}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 20, height: 20, borderRadius: 4, cursor: globalFontSize <= MIN_FONT_SIZE ? 'default' : 'pointer',
+                opacity: globalFontSize <= MIN_FONT_SIZE ? 0.3 : 1,
+                backgroundColor: 'transparent', color: 'var(--fgColor-muted, #768390)',
+                border: 'none', padding: 0, fontSize: 14, fontWeight: 700, lineHeight: '20px',
+              }}
+            >−</button>
+            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fgColor-muted, #768390)', minWidth: 22, textAlign: 'center', userSelect: 'none' }}>{globalFontSize}</span>
+            <button
+              type="button"
+              aria-label="Increase font size (⌘+)"
+              title={`Increase font size (${globalFontSize}px)`}
+              disabled={globalFontSize >= MAX_FONT_SIZE}
+              onClick={() => setGlobalFontSize(s => Math.min(MAX_FONT_SIZE, s + 1))}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 20, height: 20, borderRadius: 4, cursor: globalFontSize >= MAX_FONT_SIZE ? 'default' : 'pointer',
+                opacity: globalFontSize >= MAX_FONT_SIZE ? 0.3 : 1,
+                backgroundColor: 'transparent', color: 'var(--fgColor-muted, #768390)',
+                border: 'none', padding: 0, fontSize: 14, fontWeight: 700, lineHeight: '20px',
+              }}
+            >+</button>
+          </Box>
+          {/* Spacer between font controls and swarm */}
+          <Box sx={{ width: 12 }} />
           {/* Swarm mode indicator */}
           <Box sx={{ position: 'relative', display: 'inline-flex' }}>
             <button
@@ -1335,38 +1375,6 @@ export function TerminalView({ onBack }: Props) {
           >
             <AppsIcon size={16} />
           </button>
-          {/* Font size controls */}
-          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', flexShrink: 0, mx: '2px' }}>
-            <button
-              type="button"
-              aria-label="Decrease font size (⌘-)"
-              title={`Decrease font size (${globalFontSize}px)`}
-              disabled={globalFontSize <= MIN_FONT_SIZE}
-              onClick={() => setGlobalFontSize(s => Math.max(MIN_FONT_SIZE, s - 1))}
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 20, height: 20, borderRadius: 4, cursor: globalFontSize <= MIN_FONT_SIZE ? 'default' : 'pointer',
-                opacity: globalFontSize <= MIN_FONT_SIZE ? 0.3 : 1,
-                backgroundColor: 'transparent', color: 'var(--fgColor-muted, #768390)',
-                border: 'none', padding: 0, fontSize: 14, fontWeight: 700, lineHeight: '20px',
-              }}
-            >−</button>
-            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fgColor-muted, #768390)', minWidth: 22, textAlign: 'center', userSelect: 'none' }}>{globalFontSize}</span>
-            <button
-              type="button"
-              aria-label="Increase font size (⌘+)"
-              title={`Increase font size (${globalFontSize}px)`}
-              disabled={globalFontSize >= MAX_FONT_SIZE}
-              onClick={() => setGlobalFontSize(s => Math.min(MAX_FONT_SIZE, s + 1))}
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 20, height: 20, borderRadius: 4, cursor: globalFontSize >= MAX_FONT_SIZE ? 'default' : 'pointer',
-                opacity: globalFontSize >= MAX_FONT_SIZE ? 0.3 : 1,
-                backgroundColor: 'transparent', color: 'var(--fgColor-muted, #768390)',
-                border: 'none', padding: 0, fontSize: 14, fontWeight: 700, lineHeight: '20px',
-              }}
-            >+</button>
-          </Box>
           <ActionMenu>
             <ActionMenu.Anchor>
               <IconButton icon={LinkIcon} aria-label="Attach tmux session (⌘⇧L)" title="Attach tmux session (⌘⇧L)" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
