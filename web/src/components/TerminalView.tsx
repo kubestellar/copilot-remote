@@ -960,14 +960,19 @@ export function TerminalView({ onBack }: Props) {
         return checked[0].id;
       });
     }
-    // Scale a terminal element to fit its tile container using CSS transform.
-    // This preserves content (no internal resize) while visually fitting the tile.
+    // Shrink font and apply CSS scale to fit terminal in tile container.
+    // Changing fontSize alone (without fitAddon.fit) re-renders at the new size
+    // but preserves cols/rows — so alternate screen buffer content is NOT lost.
+    // CSS scale handles any remaining size mismatch.
     const applyTileScale = (inst: typeof termInstances extends Map<string, infer V> ? V : never, container: HTMLElement) => {
       const termEl = inst.term.element;
       if (!termEl) return;
-      // Temporarily remove scale to measure natural size
+      // Reduce font size to bring terminal closer to tile dimensions
+      inst.term.options.fontSize = tileFontSize;
+      // Remove prior scale to measure natural size at new font
       termEl.style.transform = '';
       termEl.style.transformOrigin = 'top left';
+      // Allow xterm to re-render at new font before measuring
       const termW = termEl.scrollWidth || termEl.offsetWidth;
       const termH = termEl.scrollHeight || termEl.offsetHeight;
       const containerW = container.clientWidth;
