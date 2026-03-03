@@ -871,15 +871,19 @@ export function TerminalView({ onBack }: Props) {
     return () => window.removeEventListener('resize', handleResize);
   }, [tileMode]);
 
-  // Prevent macOS trackpad momentum "rocket scroll". Block ALL wheel events on
-  // terminals and manually call term.scrollLines() with a fixed small step.
-  // This completely eliminates momentum-based scroll flooding to tmux.
+  // Prevent macOS trackpad momentum "rocket scroll" while preserving scroll
+  // functionality in tmux. We block the raw wheel event, throttle aggressively,
+  // then re-dispatch a minimal synthetic event so xterm.js sends mouse-wheel
+  // escape sequences to tmux naturally. scrollLines() alone doesn't work because
+  // tmux uses alternate screen where xterm.js has no scrollback buffer.
   useEffect(() => {
     let lastWheel = 0;
-    const THROTTLE_MS = 100;  // 10 scroll actions/sec max
-    const SCROLL_LINES = 3;   // lines per scroll tick
+    const THROTTLE_MS = 200;  // 5 scroll events/sec max — very aggressive anti-momentum
 
     const handler = (e: WheelEvent) => {
+      // Let our synthetic events pass through to xterm.js
+      if ((e as any).__smoothScroll) return;
+
       const target = e.target as HTMLElement;
       if (!target?.closest?.('.xterm')) return;
 
@@ -893,16 +897,20 @@ export function TerminalView({ onBack }: Props) {
       if (now - lastWheel < THROTTLE_MS) return;
       lastWheel = now;
 
-      // Negate: browser deltaY>0 means "scroll page down" but xterm scrollLines(+)
-      // also moves viewport down. macOS natural scrolling inverts the raw delta,
-      // so we negate to match OS expectations (swipe-up = see older content).
-      const direction = e.deltaY > 0 ? -SCROLL_LINES : SCROLL_LINES;
-      for (const [, inst] of termInstances) {
-        if (inst.container?.contains(target)) {
-          inst.term.scrollLines(direction);
-          break;
-        }
-      }
+      // Re-dispatch with minimal deltaY (just the direction sign × small value).
+      // xterm.js only checks the sign for mouse-wheel escape sequences to tmux,
+      // so the magnitude doesn't matter — what matters is the rate.
+      const synth = new WheelEvent('wheel', {
+        deltaX: 0,
+        deltaY: e.deltaY > 0 ? 3 : -3,
+        deltaMode: 0,
+        bubbles: true,
+        cancelable: true,
+        clientX: e.clientX,
+        clientY: e.clientY,
+      });
+      Object.defineProperty(synth, '__smoothScroll', { value: true });
+      target.dispatchEvent(synth);
     };
     document.addEventListener('wheel', handler, { capture: true, passive: false } as any);
     return () => {
