@@ -220,6 +220,26 @@ export default function TodoPanel({
     e.stopPropagation();
   }, [handleSubmit]);
 
+  const handleReorderItemUp = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const id = (e.currentTarget as HTMLButtonElement).dataset.itemId!;
+    onReorderItem(id, 'up');
+  }, [onReorderItem]);
+
+  const handleReorderItemDown = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const id = (e.currentTarget as HTMLButtonElement).dataset.itemId!;
+    onReorderItem(id, 'down');
+  }, [onReorderItem]);
+
+  const handleRetryItem = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const id = (e.currentTarget as HTMLButtonElement).dataset.itemId!;
+    onRetryItem(id);
+  }, [onRetryItem]);
+
+  const handleRemoveItem = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const id = (e.currentTarget as HTMLButtonElement).dataset.itemId!;
+    onRemoveItem(id);
+  }, [onRemoveItem]);
+
   // Auto-focus input when panel opens
   useEffect(() => {
     inputRef.current?.focus();
@@ -513,14 +533,16 @@ export default function TodoPanel({
                     <ActionButton
                       title="Move up"
                       disabled={idx === 0}
-                      onClick={() => onReorderItem(item.id, 'up')}
+                      onClick={handleReorderItemUp}
+                      data-item-id={item.id}
                     >
                       <ChevronUpIcon size={14} />
                     </ActionButton>
                     <ActionButton
                       title="Move down"
                       disabled={idx === items.length - 1}
-                      onClick={() => onReorderItem(item.id, 'down')}
+                      onClick={handleReorderItemDown}
+                      data-item-id={item.id}
                     >
                       <ChevronDownIcon size={14} />
                     </ActionButton>
@@ -532,7 +554,7 @@ export default function TodoPanel({
                   </ActionButton>
                 )}
                 {(item.status === 'failed' || item.status === 'done') && (
-                  <ActionButton title="Re-run" onClick={() => onRetryItem(item.id)}>
+                  <ActionButton title="Re-run" onClick={handleRetryItem} data-item-id={item.id}>
                     <SyncIcon size={14} />
                   </ActionButton>
                 )}
@@ -548,7 +570,7 @@ export default function TodoPanel({
                     <ClockIcon size={14} />
                   </ActionButton>
                 )}
-                <ActionButton title="Remove" onClick={() => onRemoveItem(item.id)} danger>
+                <ActionButton title="Remove" onClick={handleRemoveItem} data-item-id={item.id} danger>
                   <XIcon size={14} />
                 </ActionButton>
               </Box>
@@ -795,19 +817,22 @@ function ActionButton({
   onClick,
   disabled,
   danger,
+  ...rest
 }: {
   children: React.ReactNode;
   title: string;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
   danger?: boolean;
+  [key: string]: unknown;
 }) {
   return (
     <button
       type="button"
       title={title}
       disabled={disabled}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onClick={(e) => { e.stopPropagation(); onClick(e); }}
+      {...(rest as React.ButtonHTMLAttributes<HTMLButtonElement>)}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

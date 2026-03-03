@@ -1252,6 +1252,45 @@ export function TerminalView({ onBack }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [hasChecked, aiClis, addTab, fetchTmuxSessions]);
 
+  const handleToggleSwarmPopover = useCallback(() => setShowSwarmPopover(prev => !prev), []);
+  const handleToggleTodoPanel = useCallback(() => setShowTodoPanel(prev => !prev), []);
+  const handleToggleTileMode = useCallback(() => setTileMode(m => !m), []);
+
+  const handleCopyTmuxCommand = useCallback(() => {
+    if (activeTab?.tmuxSession) {
+      navigator.clipboard.writeText(`tmux attach -t ${activeTab.tmuxSession}`);
+    }
+  }, [activeTab]);
+
+  const handleTabClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    const id = (e.currentTarget as HTMLElement).dataset.tabId!;
+    setActiveTabId(id);
+    if (tileMode) {
+      setFocusedTileId(id);
+      const inst = termInstances.get(id);
+      if (inst) inst.term.focus();
+    }
+  }, [tileMode]);
+
+  const handleCheckChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const id = (e.currentTarget as HTMLInputElement).dataset.tabId!;
+    toggleCheck(id);
+  }, [toggleCheck]);
+
+  const handleTileClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const id = (e.currentTarget as HTMLDivElement).dataset.tabId!;
+    const inst = termInstances.get(id);
+    if (inst) { inst.term.focus(); setFocusedTileId(id); }
+  }, []);
+
+  const handleTileMouseEnter = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const id = (e.currentTarget as HTMLDivElement).dataset.tabId!;
+    setActiveTabId(id);
+    setFocusedTileId(id);
+    const inst = termInstances.get(id);
+    if (inst) inst.term.focus();
+  }, []);
+
   /** Upload dropped image files to the server and paste their paths into the terminal */
   const handleFileDrop = useCallback(async (tabId: string, files: FileList) => {
     const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
@@ -1368,12 +1407,14 @@ export function TerminalView({ onBack }: Props) {
                   ':hover': { bg: isActive ? '#1f6feb' : 'canvas.default' },
                   maxWidth: 500, minWidth: 150, flexShrink: 0,
                 }}
-                onClick={() => { setActiveTabId(tab.id); if (tileMode) { setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } }}
+                data-tab-id={tab.id}
+                onClick={handleTabClick}
               >
                 <input
                   type="checkbox"
                   checked={tab.checked}
-                  onChange={() => toggleCheck(tab.id)}
+                  onChange={handleCheckChange}
+                  data-tab-id={tab.id}
                   onClick={e => e.stopPropagation()}
                   style={{ margin: 0, cursor: 'pointer' }}
                 />
@@ -1510,7 +1551,7 @@ export function TerminalView({ onBack }: Props) {
               type="button"
               aria-label="Swarm mode"
               title={swarm.enabled ? `Swarm: ${swarm.tunnelUrl || 'no tunnel'}` : 'Swarm mode (disabled)'}
-              onClick={() => setShowSwarmPopover(prev => !prev)}
+              onClick={handleToggleSwarmPopover}
               style={{
                 flexShrink: 0,
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -1533,7 +1574,7 @@ export function TerminalView({ onBack }: Props) {
             type="button"
             aria-label={showTodoPanel ? 'Hide todo queue (⌘⇧D)' : 'Show todo queue (⌘⇧D)'}
             title={showTodoPanel ? 'Hide todo queue (⌘⇧D)' : 'Show todo queue (⌘⇧D)'}
-            onClick={() => setShowTodoPanel(prev => !prev)}
+            onClick={handleToggleTodoPanel}
             style={{
               flexShrink: 0,
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -1550,7 +1591,7 @@ export function TerminalView({ onBack }: Props) {
             aria-label={tileMode ? 'Single view (⌘T)' : 'Tile checked terminals (⌘T)'}
             title={tileMode ? 'Single view (⌘T)' : 'Tile checked terminals (⌘T)'}
             disabled={!hasChecked}
-            onClick={() => setTileMode(m => !m)}
+            onClick={handleToggleTileMode}
             style={{
               flexShrink: 0, opacity: hasChecked ? 1 : 0.3,
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -1647,7 +1688,7 @@ export function TerminalView({ onBack }: Props) {
           </Text>
           <Box
             as="button"
-            onClick={() => { if (activeTab?.tmuxSession) navigator.clipboard.writeText(`tmux attach -t ${activeTab.tmuxSession}`); }}
+            onClick={handleCopyTmuxCommand}
             sx={{ bg: 'transparent', border: '1px solid', borderColor: 'border.muted', borderRadius: 1, color: 'fg.muted', cursor: 'pointer', px: 1, py: 0, fontSize: '10px', ':hover': { color: 'fg.default', borderColor: 'border.default' } }}
           >
             copy
@@ -1697,8 +1738,9 @@ export function TerminalView({ onBack }: Props) {
                   boxShadow: focusedTileId === tab.id ? '0 0 8px 2px rgba(88,166,255,0.4), inset 0 0 1px rgba(88,166,255,0.3)' : 'none',
                 }),
               }}
-              onClick={isTile ? () => { const inst = termInstances.get(tab.id); if (inst) { inst.term.focus(); setFocusedTileId(tab.id); } } : undefined}
-              onMouseEnter={isTile && focusMode === 'hover' ? () => { setActiveTabId(tab.id); setFocusedTileId(tab.id); const inst = termInstances.get(tab.id); if (inst) inst.term.focus(); } : undefined}
+              data-tab-id={tab.id}
+              onClick={isTile ? handleTileClick : undefined}
+              onMouseEnter={isTile && focusMode === 'hover' ? handleTileMouseEnter : undefined}
             >
               {/* Tile header — only in tile mode */}
               {isTile && (

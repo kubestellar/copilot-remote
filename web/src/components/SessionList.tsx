@@ -51,6 +51,12 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
     onEditingChange?.(id !== null);
   }, [onEditingChange]);
 
+  const handleToggleCopilotCollapsed = useCallback(() => setCopilotCollapsed(c => !c), []);
+
+  const handleCopilotHeadingKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCopilotCollapsed(c => !c); }
+  }, []);
+
   const statusColor = (s: Session['status']) => {
     switch (s) {
       case 'running': return 'success.fg';
@@ -80,6 +86,11 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
     onRefresh();
     setEditing(null);
   }, [editName, onRefresh, setEditing]);
+
+  const handleSaveRenameClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const id = (e.currentTarget as HTMLButtonElement).dataset.sessionId!;
+    handleSaveRename(id);
+  }, [handleSaveRename]);
 
   const handleAddTag = useCallback(async (sessionId: string) => {
     if (newTag.trim()) {
@@ -111,7 +122,7 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
 
       <ActionList>
         <ActionList.Group>
-          <ActionList.GroupHeading as="h3" sx={{ fontSize: '11px', fontWeight: 600, color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.5px', cursor: 'pointer', userSelect: 'none' }} onClick={() => setCopilotCollapsed(!copilotCollapsed)} onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCopilotCollapsed(!copilotCollapsed); } }} tabIndex={0} role="button" aria-expanded={!copilotCollapsed}>
+          <ActionList.GroupHeading as="h3" sx={{ fontSize: '11px', fontWeight: 600, color: 'fg.muted', textTransform: 'uppercase', letterSpacing: '0.5px', cursor: 'pointer', userSelect: 'none' }} onClick={handleToggleCopilotCollapsed} onKeyDown={handleCopilotHeadingKeyDown} tabIndex={0} role="button" aria-expanded={!copilotCollapsed}>
             {copilotCollapsed ? <ChevronRightIcon size={12} /> : <ChevronDownIcon size={12} />}{' '}
             ⚡ Copilot{' '}
             <span style={{ fontWeight: 400 }}>
@@ -139,7 +150,7 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
                     sx={{ flex: 1, fontSize: 0, bg: 'canvas.default', color: 'fg.default' }}
                     autoFocus
                   />
-                  <Button size="small" variant="primary" onClick={() => handleSaveRename(session.id)} sx={{ fontSize: 0, py: 0, px: 2 }} aria-label="Save name">
+                  <Button size="small" variant="primary" onClick={handleSaveRenameClick} data-session-id={session.id} sx={{ fontSize: 0, py: 0, px: 2 }} aria-label="Save name">
                     Save
                   </Button>
                 </Box>

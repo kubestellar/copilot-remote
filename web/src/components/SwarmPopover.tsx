@@ -55,6 +55,23 @@ export default function SwarmPopover({ swarm, onClose }: SwarmPopoverProps) {
     navigator.clipboard.writeText(url);
   }, []);
 
+  const handleToggleEnabled = useCallback(() => {
+    swarm.toggleEnabled(!swarm.enabled);
+  }, [swarm.toggleEnabled, swarm.enabled]);
+
+  const handleCopyTunnelUrl = useCallback(() => {
+    if (swarm.tunnelUrl) handleCopyUrl(swarm.tunnelUrl);
+  }, [handleCopyUrl, swarm.tunnelUrl]);
+
+  const handleCopyInviteUrl = useCallback(() => {
+    if (inviteUrl) handleCopyUrl(inviteUrl);
+  }, [handleCopyUrl, inviteUrl]);
+
+  const handleRevokeKey = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const fullKey = (e.currentTarget as HTMLButtonElement).dataset.fullKey!;
+    swarm.revokeKey(fullKey);
+  }, [swarm.revokeKey]);
+
   return (
     <div
       ref={popoverRef}
@@ -78,7 +95,7 @@ export default function SwarmPopover({ swarm, onClose }: SwarmPopoverProps) {
         <Text sx={{ fontSize: '13px', fontWeight: 600, color: 'fg.default' }}>Swarm Mode</Text>
         <button
           type="button"
-          onClick={() => swarm.toggleEnabled(!swarm.enabled)}
+          onClick={handleToggleEnabled}
           style={{
             padding: '2px 10px',
             borderRadius: 10,
@@ -114,7 +131,7 @@ export default function SwarmPopover({ swarm, onClose }: SwarmPopoverProps) {
               </Text>
               <button
                 type="button"
-                onClick={() => handleCopyUrl(swarm.tunnelUrl!)}
+                onClick={handleCopyTunnelUrl}
                 style={smallBtnStyle}
               >
                 Copy
@@ -204,7 +221,7 @@ export default function SwarmPopover({ swarm, onClose }: SwarmPopoverProps) {
               <Text sx={{ fontSize: '10px', fontFamily: 'mono', color: 'fg.default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                 {inviteUrl}
               </Text>
-              <button type="button" onClick={() => handleCopyUrl(inviteUrl)} style={smallBtnStyle}>
+              <button type="button" onClick={handleCopyInviteUrl} style={smallBtnStyle}>
                 Copy
               </button>
             </Box>
@@ -233,7 +250,8 @@ export default function SwarmPopover({ swarm, onClose }: SwarmPopoverProps) {
             </Box>
             <button
               type="button"
-              onClick={() => swarm.revokeKey(k.fullKey)}
+              onClick={handleRevokeKey}
+              data-full-key={k.fullKey}
               style={{ ...smallBtnStyle, color: '#f85149' }}
             >
               Revoke

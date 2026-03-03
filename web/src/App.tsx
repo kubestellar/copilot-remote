@@ -180,6 +180,9 @@ export default function App() {
     handleSelectSession(id);
   }, [refresh, handleSelectSession]);
 
+  const handleSelectSessionsTab = useCallback(() => setActiveTab('sessions'), []);
+  const handleSelectTerminalTab = useCallback(() => setActiveTab('terminal'), []);
+
   const isConfigured = !!localStorage.getItem('copilot-remote-token');
 
   if (!isConfigured) {
@@ -201,14 +204,14 @@ export default function App() {
         <UnderlineNav aria-label="Main navigation">
           <UnderlineNav.Item
             aria-current={activeTab === 'sessions' ? 'page' : undefined}
-            onClick={() => setActiveTab('sessions')}
+            onClick={handleSelectSessionsTab}
             icon={CommentDiscussionIcon}
           >
             Sessions
           </UnderlineNav.Item>
           <UnderlineNav.Item
             aria-current={activeTab === 'terminal' ? 'page' : undefined}
-            onClick={() => setActiveTab('terminal')}
+            onClick={handleSelectTerminalTab}
             icon={TerminalIcon}
           >
             Terminals
