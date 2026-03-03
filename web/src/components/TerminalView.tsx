@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -240,9 +240,10 @@ export function TerminalView({ onBack }: Props) {
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [showTodoPanel, setShowTodoPanel] = useState(() => localStorage.getItem(TODO_PANEL_KEY) !== 'false');
-  const singleContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const tileContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const intentRef = useRef<Map<string, string>>(new Map());
+  // Cache each terminal's full-viewport pixel size so we can freeze it in tile mode
+  const termNaturalSizes = useRef<Map<string, { w: number; h: number }>>(new Map());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeTabIdRef = useRef(activeTabId);
@@ -295,7 +296,7 @@ export function TerminalView({ onBack }: Props) {
     });
   }, []);
 
-  const createTermConnection = useCallback((tabId: string, container: HTMLDivElement, fontSize?: number) => {
+  const createTermConnection = useCallback((tabId: string, container: HTMLDivElement) => {
     // Clean up if exists
     const existing = termInstances.get(tabId);
     if (existing) {
@@ -306,7 +307,7 @@ export function TerminalView({ onBack }: Props) {
     }
 
     const { token, wsUrl } = getServerUrls();
-    const term = new Terminal({ ...TERM_OPTS, fontSize: fontSize ?? TERM_OPTS.fontSize });
+    const term = new Terminal({ ...TERM_OPTS, fontSize: TERM_OPTS.fontSize });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
@@ -785,62 +786,28 @@ export function TerminalView({ onBack }: Props) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Eagerly create terminal connections for ALL tabs so content is ready before switching
-  // Skip only when tile mode is active AND has checked tabs (tiles are rendering)
   useEffect(() => {
-    if (!fontReady || tileActive) return;
+    if (!fontReady) return;
     for (const tab of tabs) {
-      const container = singleContainerRefs.current.get(tab.id);
+      const container = containerRefs.current.get(tab.id);
       if (!container) continue;
       const existing = termInstances.get(tab.id);
-      if (existing) {
-        // If terminal is in the wrong container (returning from tile mode), move it back
-        if (existing.term.element && existing.term.element.parentElement !== container) {
-          existing.term.options.fontSize = 14;
-          container.innerHTML = '';
-          container.appendChild(existing.term.element);
-          existing.container = container;
-          requestAnimationFrame(() => {
-            try { existing.fitAddon.fit(); } catch {}
-            existing.term.refresh(0, existing.term.rows - 1);
-          });
-        }
-        continue;
-      }
+      if (existing) continue;
       createTermConnection(tab.id, container);
     }
-  }, [tabs, fontReady, tileActive, createTermConnection]);
+  }, [tabs, fontReady, createTermConnection]);
 
-  // Handle active tab: focus terminal, or remount from tile mode
+  // Handle active tab: focus terminal
   useEffect(() => {
-    if (!fontReady || tileActive || !activeTabId) return;
-    const container = singleContainerRefs.current.get(activeTabId);
-    if (!container) return;
+    if (!fontReady || !activeTabId) return;
     const inst = termInstances.get(activeTabId);
-    if (inst && inst.term.element?.parentElement === container) {
-      // Already mounted in correct container — fit to fill viewport then focus
+    if (!inst) return;
+    // Only fit in single mode (tile mode uses CSS scaling)
+    if (!tileActive) {
       try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
-      inst.term.scrollToBottom();
-      inst.term.focus();
-      return;
     }
-    if (inst) {
-      // Terminal exists but in wrong container (e.g. returning from tile mode)
-      inst.term.options.fontSize = 14;
-      container.innerHTML = '';
-      if (inst.term.element) {
-        container.appendChild(inst.term.element);
-      } else {
-        inst.term.open(container);
-      }
-      inst.container = container;
-      // Force full redraw after reparenting (element was in detached tile container)
-      setTimeout(() => {
-        try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
-        inst.term.scrollToBottom();
-        inst.term.refresh(0, inst.term.rows - 1);
-      }, 50);
-      inst.term.focus();
-    }
+    inst.term.scrollToBottom();
+    inst.term.focus();
   }, [activeTabId, tileActive, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle window resize — fit all terminals since visibility:hidden preserves layout
@@ -869,7 +836,7 @@ export function TerminalView({ onBack }: Props) {
       lastWheel = now;
     };
     const attached: HTMLElement[] = [];
-    for (const [, el] of singleContainerRefs.current) {
+    for (const [, el] of containerRefs.current) {
       el.addEventListener('wheel', handler, { capture: true, passive: false });
       attached.push(el);
     }
@@ -914,166 +881,133 @@ export function TerminalView({ onBack }: Props) {
     : checkedTabs.length <= 9 ? 3
     : 4;
 
-  // Scale font size down in tile mode based on grid density
-  const tileRows = Math.ceil(checkedTabs.length / Math.max(tileCols, 1));
-  const tileFontSize = tileRows <= 1 ? 13 : tileRows <= 2 ? 10 : tileRows <= 3 ? 8 : 7;
-
-  // Collect tile container refs (no mounting here — just store the DOM element)
-  const tileRefCallback = useCallback((el: HTMLDivElement | null, tabId: string) => {
-    if (el) {
-      tileContainerRefs.current.set(tabId, el);
-    } else {
-      tileContainerRefs.current.delete(tabId);
-    }
-  }, []);
-
-  // Mount terminals into tile containers when tile mode is active
-  useEffect(() => {
-    if (!tileMode || !fontReady) {
-      if (!tileMode) {
-        setFocusedTileId(null);
-        for (const [, inst] of termInstances) {
-          // Remove CSS scaling applied in tile mode
-          if (inst.term.element) {
-            inst.term.element.style.transform = '';
-            inst.term.element.style.transformOrigin = '';
-          }
-          if (inst.term.options.fontSize !== 14) {
-            inst.term.options.fontSize = 14;
-          }
-          try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
+  // Capture terminal sizes when NOT in tile mode; freeze them when entering tile mode.
+  // useLayoutEffect runs synchronously before paint, so we can set fixed dimensions
+  // on .xterm elements BEFORE the browser lays out the grid (which would shrink containers).
+  useLayoutEffect(() => {
+    if (!tileMode) {
+      // In single mode: continuously update cached sizes from actual rendered dimensions
+      for (const [id, inst] of termInstances) {
+        const screen = inst.term.element?.querySelector('.xterm-screen') as HTMLElement | null;
+        if (screen && screen.offsetWidth > 0 && screen.offsetHeight > 0) {
+          termNaturalSizes.current.set(id, { w: screen.offsetWidth, h: screen.offsetHeight });
         }
       }
       return;
     }
+    // Entering tile mode: freeze each xterm element at its cached full-viewport size
+    // so it doesn't auto-shrink to the smaller tile cell (which would trigger xterm resize)
+    for (const [id, inst] of termInstances) {
+      const termEl = inst.term.element;
+      if (!termEl) continue;
+      const cached = termNaturalSizes.current.get(id);
+      if (cached && cached.w > 0 && cached.h > 0) {
+        termEl.style.width = cached.w + 'px';
+        termEl.style.height = cached.h + 'px';
+        termEl.style.transformOrigin = 'top left';
+      }
+    }
+  }, [tileMode]);
+
+  // Apply CSS scaling in tile mode (no DOM reparenting, no fontSize change)
+  useEffect(() => {
+    if (!tileMode || !fontReady) {
+      if (!tileMode) {
+        setFocusedTileId(null);
+        // Remove CSS scaling from all terminals
+        for (const [, inst] of termInstances) {
+          if (inst.term.element) {
+            inst.term.element.style.transform = '';
+            inst.term.element.style.transformOrigin = '';
+            inst.term.element.style.width = '';
+            inst.term.element.style.height = '';
+          }
+        }
+        // Fit the active terminal to fill viewport
+        const activeInst = activeTabId ? termInstances.get(activeTabId) : null;
+        if (activeInst) {
+          try { activeInst.fitAddon.fit(); } catch {}
+          activeInst.term.refresh(0, activeInst.term.rows - 1);
+        }
+      }
+      return;
+    }
+
     let cancelled = false;
-    const focusHandlers: Array<{ el: HTMLElement; handler: () => void }> = [];
     const wheelHandlers: Array<{ el: HTMLElement; handler: (e: WheelEvent) => void }> = [];
-    // Auto-set focused tile when entering tile mode — prefer the restored activeTabId
+
+    // Auto-set focused tile
     const checked = tabsRef.current.filter(t => t.checked);
     if (checked.length > 0) {
       setFocusedTileId(prev => {
         if (prev && checked.some(t => t.id === prev)) return prev;
-        // Prefer activeTabId so focused tile matches the highlighted tab after restore
         const active = activeTabIdRef.current;
         if (active && checked.some(t => t.id === active)) return active;
         return checked[0].id;
       });
     }
-    // Shrink font and apply CSS scale to fit terminal in tile container.
-    // Changing fontSize alone (without fitAddon.fit) re-renders at the new size
-    // but preserves cols/rows — so alternate screen buffer content is NOT lost.
-    // CSS scale handles any remaining size mismatch.
-    const applyTileScale = (inst: typeof termInstances extends Map<string, infer V> ? V : never, container: HTMLElement) => {
-      const termEl = inst.term.element;
-      if (!termEl) return;
-      // Reduce font size to bring terminal closer to tile dimensions
-      inst.term.options.fontSize = tileFontSize;
-      // Remove prior scale to measure natural size at new font
-      termEl.style.transform = '';
-      termEl.style.transformOrigin = 'top left';
-      // Allow xterm to re-render at new font before measuring
-      const termW = termEl.scrollWidth || termEl.offsetWidth;
-      const termH = termEl.scrollHeight || termEl.offsetHeight;
-      const containerW = container.clientWidth;
-      const containerH = container.clientHeight;
-      if (termW <= 0 || termH <= 0 || containerW <= 0 || containerH <= 0) return;
-      const scale = Math.min(containerW / termW, containerH / termH, 1);
-      termEl.style.transform = `scale(${scale})`;
-    };
-    const mountTiles = () => {
+
+    const applyScaling = () => {
       if (cancelled) return;
-      suppressPtyResize = true; // don't send resize to PTY while rearranging tiles
+      suppressPtyResize = true;
       const checked = tabsRef.current.filter(t => t.checked);
-      let pending = 0;
+
       for (const tab of checked) {
-        const el = tileContainerRefs.current.get(tab.id);
-        if (!el || !el.isConnected) {
-          pending++; continue;
-        }
+        const container = containerRefs.current.get(tab.id);
+        if (!container || !container.isConnected) continue;
         const inst = termInstances.get(tab.id);
-        if (inst) {
-          if (inst.term.element?.parentElement === el) {
-            // Already in this container — just update CSS scaling
-            applyTileScale(inst, el);
-            continue;
-          }
-          // Move terminal element to tile container — keep original size, use CSS scale
-          // DON'T change fontSize or call fitAddon.fit() — alternate screen buffers
-          // lose content when xterm.js resizes internally
-          el.innerHTML = '';
-          if (inst.term.element) {
-            el.appendChild(inst.term.element);
-          } else {
-            inst.term.open(el);
-          }
-          inst.container = el;
-          inst.term.scrollToBottom();
-        } else {
-          createTermConnection(tab.id, el, tileFontSize);
-        }
-        // Track focus on each tile's terminal
-        const focusHandler = () => {
-          if (cancelled) return;
-          setFocusedTileId(tab.id);
-          // Send resize to PTY when user focuses a tile — this is the safe moment
-          const focusInst = termInstances.get(tab.id);
-          if (focusInst?.ws?.readyState === WebSocket.OPEN) {
-            focusInst.ws.send(JSON.stringify({ type: 'resize', cols: focusInst.term.cols, rows: focusInst.term.rows }));
-          }
-        };
-        el.addEventListener('focusin', focusHandler);
-        focusHandlers.push({ el, handler: focusHandler });
-        // Capture wheel events — throttle to prevent macOS trackpad rocket scroll
-        let lastTileWheel = 0;
+        if (!inst?.term.element) continue;
+
+        const termEl = inst.term.element;
+        termEl.style.transformOrigin = 'top left';
+
+        // Use cached full-viewport size (frozen by useLayoutEffect above)
+        const cached = termNaturalSizes.current.get(tab.id);
+        const naturalW = cached?.w || termEl.offsetWidth;
+        const naturalH = cached?.h || termEl.offsetHeight;
+        // Re-freeze in case layout changed
+        termEl.style.width = naturalW + 'px';
+        termEl.style.height = naturalH + 'px';
+
+        const containerW = container.clientWidth;
+        const containerH = container.clientHeight;
+        if (containerW <= 0 || containerH <= 0 || naturalW <= 0 || naturalH <= 0) continue;
+
+        const scale = Math.min(containerW / naturalW, containerH / naturalH, 1);
+        termEl.style.transform = `scale(${scale})`;
+
+        // Wheel throttle for macOS trackpad
+        let lastWheel = 0;
         const wheelHandler = (e: WheelEvent) => {
           e.preventDefault();
           e.stopPropagation();
           const now = performance.now();
-          if (now - lastTileWheel < 32) {
+          if (now - lastWheel < 32) {
             e.stopImmediatePropagation();
             return;
           }
-          lastTileWheel = now;
+          lastWheel = now;
         };
-        el.addEventListener('wheel', wheelHandler, { capture: true, passive: false });
-        wheelHandlers.push({ el, handler: wheelHandler });
+        container.addEventListener('wheel', wheelHandler, { capture: true, passive: false });
+        wheelHandlers.push({ el: container, handler: wheelHandler });
       }
-      // Retry for refs that haven't connected yet
-      if (pending > 0) {
-        setTimeout(() => { if (!cancelled) mountTiles(); }, 100);
-      }
-      // Apply CSS scaling after browser layout resolves (double-rAF for accuracy)
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        requestAnimationFrame(() => {
-          if (cancelled) return;
-          for (const tab of checked) {
-            const inst = termInstances.get(tab.id);
-            const el = tileContainerRefs.current.get(tab.id);
-            if (inst && el) {
-              applyTileScale(inst, el);
-              inst.term.refresh(0, inst.term.rows - 1);
-            }
-          }
-          suppressPtyResize = false;
-        });
-      });
+      suppressPtyResize = false;
     };
-    // Start after initial DOM commit
+
+    // Apply after layout settles
     requestAnimationFrame(() => {
-      if (!cancelled) mountTiles();
+      if (!cancelled) requestAnimationFrame(() => {
+        if (!cancelled) applyScaling();
+      });
     });
+
     return () => {
       cancelled = true;
-      for (const { el, handler } of focusHandlers) {
-        el.removeEventListener('focusin', handler);
-      }
       for (const { el, handler } of wheelHandlers) {
         el.removeEventListener('wheel', handler);
       }
     };
-  }, [tileMode, fontReady, checkedTabs.length, tileFontSize, createTermConnection]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tileMode, fontReady, checkedTabs.length, activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Document-level paste handler: catches Cmd/Ctrl+V paste events and sends
   // clipboard text to the focused terminal's WebSocket. This is more reliable
@@ -1197,21 +1131,12 @@ export function TerminalView({ onBack }: Props) {
   // Attach drag-drop handlers to all visible terminal containers
   useEffect(() => {
     const cleanups: Array<() => void> = [];
-
-    if (tileActive) {
-      for (const tab of checkedTabs) {
-        const el = tileContainerRefs.current.get(tab.id);
-        if (el) cleanups.push(setupDragDrop(el, tab.id));
-      }
-    } else {
-      for (const tab of tabs) {
-        const el = singleContainerRefs.current.get(tab.id);
-        if (el) cleanups.push(setupDragDrop(el, tab.id));
-      }
+    for (const tab of tabs) {
+      const el = containerRefs.current.get(tab.id);
+      if (el) cleanups.push(setupDragDrop(el, tab.id));
     }
-
     return () => { for (const cleanup of cleanups) cleanup(); };
-  }, [tabs, checkedTabs, tileActive, setupDragDrop]);
+  }, [tabs, tileActive, setupDragDrop]);
 
   // Prevent browser default file drop behavior (navigating to file)
   useEffect(() => {
@@ -1483,105 +1408,113 @@ export function TerminalView({ onBack }: Props) {
         </Box>
       )}
 
-      {/* Terminal area */}
-      {tileMode && hasChecked ? (
-        /* Tile grid — native divs to avoid Primer sx interference with CSS Grid */
-        <div style={{
-          flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'grid',
+      {/* Terminal area — unified containers, never reparented */}
+      <div style={{
+        flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden',
+        position: 'relative',
+        ...(tileMode && hasChecked ? {
+          display: 'grid',
           gridTemplateColumns: `repeat(${tileCols}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${Math.ceil(checkedTabs.length / tileCols)}, minmax(0, 1fr))`,
-          gap: '2px', background: '#30363d', width: '100%',
-        }}>
-          {checkedTabs.map(tab => (
-            <div key={tab.id} style={{
-              display: 'flex', flexDirection: 'column', background: '#0d1117', minHeight: 0, minWidth: 0, overflow: 'hidden',
-              border: focusedTileId === tab.id ? '2px solid #58a6ff' : '2px solid transparent',
-              borderRadius: focusedTileId === tab.id ? 6 : 0,
-              boxShadow: focusedTileId === tab.id ? '0 0 8px 2px rgba(88,166,255,0.4), inset 0 0 1px rgba(88,166,255,0.3)' : 'none',
-            }}
-              onClick={() => { const inst = termInstances.get(tab.id); if (inst) { inst.term.focus(); setFocusedTileId(tab.id); } }}
+          gap: '2px',
+          background: '#30363d',
+        } : {}),
+      }}>
+        {tabs.map(tab => {
+          const isVisible = tileMode && hasChecked
+            ? tab.checked
+            : tab.id === activeTabId;
+          const isTile = tileMode && hasChecked && tab.checked;
+
+          return (
+            <div
+              key={tab.id}
+              style={{
+                display: isVisible ? 'flex' : 'none',
+                flexDirection: 'column',
+                background: '#0d1117',
+                minHeight: 0, minWidth: 0, overflow: 'hidden',
+                // Single mode: fill entire parent
+                ...(!isTile ? {
+                  position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                } : {
+                  // Tile mode: grid cell with optional border
+                  border: focusedTileId === tab.id ? '2px solid #58a6ff' : '2px solid transparent',
+                  borderRadius: focusedTileId === tab.id ? 6 : 0,
+                  boxShadow: focusedTileId === tab.id ? '0 0 8px 2px rgba(88,166,255,0.4), inset 0 0 1px rgba(88,166,255,0.3)' : 'none',
+                }),
+              }}
+              onClick={isTile ? () => { const inst = termInstances.get(tab.id); if (inst) { inst.term.focus(); setFocusedTileId(tab.id); } } : undefined}
             >
-              <div style={{
-                padding: '3px 8px',
-                background: focusedTileId === tab.id ? '#1f6feb' : '#161b22',
-                borderBottom: focusedTileId === tab.id ? '1px solid #388bfd' : '1px solid #21262d',
-                display: 'flex', alignItems: 'center', gap: 4,
-              }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: termInstances.get(tab.id)?.connected ? '#3fb950' : termInstances.has(tab.id) ? '#f85149' : '#6e7681' }} />
-                <span style={{ fontSize: 10, fontFamily: 'monospace', color: focusedTileId === tab.id ? '#ffffff' : '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {tab.name}
-                </span>
-                {tab.lastIntent && (
-                  <span style={{ fontSize: 9, fontStyle: 'italic', color: focusedTileId === tab.id ? '#a5d6ff' : '#58a6ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    — {tab.lastIntent}
+              {/* Tile header — only in tile mode */}
+              {isTile && (
+                <div style={{
+                  padding: '3px 8px',
+                  background: focusedTileId === tab.id ? '#1f6feb' : '#161b22',
+                  borderBottom: focusedTileId === tab.id ? '1px solid #388bfd' : '1px solid #21262d',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: termInstances.get(tab.id)?.connected ? '#3fb950' : termInstances.has(tab.id) ? '#f85149' : '#6e7681' }} />
+                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: focusedTileId === tab.id ? '#ffffff' : '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {tab.name}
                   </span>
-                )}
-                {tab.lastCommand && showTodoPanel && (
-                  <button
-                    type="button"
-                    title={`Queue: ${tab.lastCommand}`}
-                    onClick={(e) => { e.stopPropagation(); todoDispatcherRef.current.addItem(tab.lastCommand!); }}
-                    style={{
-                      background: 'transparent', border: '1px solid',
-                      borderColor: focusedTileId === tab.id ? 'rgba(255,255,255,0.3)' : '#30363d',
-                      borderRadius: 3, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681',
-                      cursor: 'pointer', padding: '0 3px', fontSize: 9, lineHeight: '16px', flexShrink: 0,
-                      marginLeft: 'auto',
-                    }}
-                  >
-                    <ListUnorderedIcon size={10} />
-                  </button>
-                )}
-                {tab.tmuxSession && (
-                  <>
-                    <span style={{ fontSize: 9, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681', fontFamily: 'monospace', marginLeft: tab.lastCommand && showTodoPanel ? 0 : 'auto', flexShrink: 0 }}>
-                      tmux attach -t {tab.tmuxSession}
+                  {tab.lastIntent && (
+                    <span style={{ fontSize: 9, fontStyle: 'italic', color: focusedTileId === tab.id ? '#a5d6ff' : '#58a6ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      — {tab.lastIntent}
                     </span>
+                  )}
+                  {tab.lastCommand && showTodoPanel && (
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`tmux attach -t ${tab.tmuxSession}`); }}
+                      title={`Queue: ${tab.lastCommand}`}
+                      onClick={(e) => { e.stopPropagation(); todoDispatcherRef.current.addItem(tab.lastCommand!); }}
                       style={{
                         background: 'transparent', border: '1px solid',
                         borderColor: focusedTileId === tab.id ? 'rgba(255,255,255,0.3)' : '#30363d',
                         borderRadius: 3, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681',
-                        cursor: 'pointer', padding: '0 4px', fontSize: 9, lineHeight: '16px', flexShrink: 0,
+                        cursor: 'pointer', padding: '0 3px', fontSize: 9, lineHeight: '16px', flexShrink: 0,
+                        marginLeft: 'auto',
                       }}
                     >
-                      copy
+                      <ListUnorderedIcon size={10} />
                     </button>
-                  </>
-                )}
-              </div>
-              <div style={{ flex: 1, position: 'relative', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
-                <div
-                  ref={(el: HTMLDivElement | null) => tileRefCallback(el, tab.id)}
-                  className="tile-xterm-container"
-                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden' }}
-                />
-              </div>
+                  )}
+                  {tab.tmuxSession && (
+                    <>
+                      <span style={{ fontSize: 9, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681', fontFamily: 'monospace', marginLeft: tab.lastCommand && showTodoPanel ? 0 : 'auto', flexShrink: 0 }}>
+                        tmux attach -t {tab.tmuxSession}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`tmux attach -t ${tab.tmuxSession}`); }}
+                        style={{
+                          background: 'transparent', border: '1px solid',
+                          borderColor: focusedTileId === tab.id ? 'rgba(255,255,255,0.3)' : '#30363d',
+                          borderRadius: 3, color: focusedTileId === tab.id ? '#a5d6ff' : '#6e7681',
+                          cursor: 'pointer', padding: '0 4px', fontSize: 9, lineHeight: '16px', flexShrink: 0,
+                        }}
+                      >
+                        copy
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              {/* Terminal content area */}
+              <div
+                ref={(el: HTMLDivElement | null) => {
+                  if (el) containerRefs.current.set(tab.id, el);
+                  else containerRefs.current.delete(tab.id);
+                }}
+                style={{
+                  flex: 1, position: 'relative', minHeight: 0, minWidth: 0, overflow: 'hidden',
+                  ...((!isTile) ? { padding: 4 } : {}),
+                }}
+              />
             </div>
-          ))}
-        </div>
-      ) : (
-        /* Single terminal — one container per tab, show/hide to avoid DOM reparenting flicker */
-        <Box sx={{ flex: 1, minHeight: 0, position: 'relative', bg: '#0d1117' }}>
-          {tabs.map(tab => (
-            <Box
-              key={tab.id}
-              ref={(el: HTMLDivElement | null) => {
-                if (el) singleContainerRefs.current.set(tab.id, el);
-                else singleContainerRefs.current.delete(tab.id);
-              }}
-              sx={{
-                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, p: 1,
-                visibility: tab.id === activeTabId ? 'visible' : 'hidden',
-                pointerEvents: tab.id === activeTabId ? 'auto' : 'none',
-                '& .xterm': { height: '100%' },
-              }}
-            />
-          ))}
-        </Box>
-      )}
+          );
+        })}
+      </div>
 
       </Box>{/* end terminal column */}
 
