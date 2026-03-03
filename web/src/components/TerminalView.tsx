@@ -145,6 +145,10 @@ const CHECKED_TILES_KEY = 'copilot-remote-checked-tiles';
 const TILE_MODE_KEY = 'copilot-remote-tile-mode';
 const TODO_PANEL_KEY = 'copilot-remote-show-todo-panel';
 const ACTIVE_TERMINAL_KEY = 'copilot-remote-active-terminal';
+const FONT_SIZE_KEY = 'copilot-remote-font-size';
+const MIN_FONT_SIZE = 8;
+const MAX_FONT_SIZE = 24;
+const DEFAULT_FONT_SIZE = 14;
 /** CSS class applied to terminal containers during image drag-over */
 const DRAG_OVER_CLASS = 'drag-over-highlight';
 
@@ -240,12 +244,18 @@ export function TerminalView({ onBack }: Props) {
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [showTodoPanel, setShowTodoPanel] = useState(() => localStorage.getItem(TODO_PANEL_KEY) !== 'false');
+  const [globalFontSize, setGlobalFontSize] = useState(() => {
+    const saved = parseInt(localStorage.getItem(FONT_SIZE_KEY) || '', 10);
+    return (saved >= MIN_FONT_SIZE && saved <= MAX_FONT_SIZE) ? saved : DEFAULT_FONT_SIZE;
+  });
   const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const intentRef = useRef<Map<string, string>>(new Map());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
+  const globalFontSizeRef = useRef(globalFontSize);
+  globalFontSizeRef.current = globalFontSize;
 
   // Persist tile mode and checked tiles to localStorage
   useEffect(() => {
@@ -264,6 +274,18 @@ export function TerminalView({ onBack }: Props) {
   useEffect(() => {
     localStorage.setItem(TODO_PANEL_KEY, String(showTodoPanel));
   }, [showTodoPanel]);
+
+  // Apply global font size to all terminals
+  useEffect(() => {
+    localStorage.setItem(FONT_SIZE_KEY, String(globalFontSize));
+    if (tileMode) return; // tile mode manages its own font size
+    for (const [id, inst] of termInstances) {
+      inst.term.options.fontSize = globalFontSize;
+      if (id === activeTabId) {
+        try { inst.fitAddon.fit(); } catch {}
+      }
+    }
+  }, [globalFontSize, activeTabId, tileMode]);
 
   // Getter for termInstances (passed to hook to avoid stale closure)
   const getTermInstances = useCallback(() => termInstances, []);
@@ -305,7 +327,7 @@ export function TerminalView({ onBack }: Props) {
     }
 
     const { token, wsUrl } = getServerUrls();
-    const term = new Terminal({ ...TERM_OPTS, fontSize: TERM_OPTS.fontSize });
+    const term = new Terminal({ ...TERM_OPTS, fontSize: globalFontSizeRef.current });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
@@ -819,45 +841,35 @@ export function TerminalView({ onBack }: Props) {
     return () => window.removeEventListener('resize', handleResize);
   }, [tileMode]);
 
-  // Intercept wheel events on terminals to prevent macOS trackpad momentum
-  // "rocket scroll". Strategy: block ALL original wheel events on .xterm,
-  // then re-dispatch a delta-clamped copy at a throttled rate. This prevents
-  // momentum events (which carry huge deltaY values) from causing rapid scroll.
+  // Prevent macOS trackpad momentum "rocket scroll" by intercepting ALL wheel
+  // events on terminals. Instead of letting events reach xterm.js (which would
+  // send mouse escape sequences to tmux causing uncontrollable scroll), we block
+  // everything and manually call term.scrollLines() for xterm.js scrollback.
   useEffect(() => {
     let lastWheel = 0;
-    const synthetic = new WeakSet<WheelEvent>();
-    const MAX_DELTA = 50; // ~3 lines per event in xterm.js
-    const THROTTLE_MS = 120; // ~8 events/sec max
+    const THROTTLE_MS = 120; // ~8 scroll actions/sec
+    const SCROLL_LINES = 3;  // lines per allowed scroll event
 
     const handler = (e: WheelEvent) => {
-      if (synthetic.has(e)) return; // our own re-dispatched event — let through
       const target = e.target as HTMLElement;
       if (!target?.closest?.('.xterm')) return;
 
-      // Always block the original (may have huge momentum deltaY)
+      // Block ALL wheel events — no events reach xterm.js or tmux
       e.preventDefault();
       e.stopImmediatePropagation();
 
       const now = performance.now();
-      if (now - lastWheel < THROTTLE_MS) return; // throttled
+      if (now - lastWheel < THROTTLE_MS) return;
       lastWheel = now;
 
-      // Re-dispatch with clamped delta so xterm.js scrolls a controlled amount
-      const clamped = new WheelEvent('wheel', {
-        deltaX: e.deltaX,
-        deltaY: Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), MAX_DELTA),
-        deltaZ: e.deltaZ,
-        deltaMode: e.deltaMode,
-        clientX: e.clientX,
-        clientY: e.clientY,
-        screenX: e.screenX,
-        screenY: e.screenY,
-        bubbles: true,
-        cancelable: true,
-        view: e.view,
-      });
-      synthetic.add(clamped);
-      target.dispatchEvent(clamped);
+      // Find the terminal instance that owns this .xterm element
+      const xtermEl = target.closest('.xterm') as HTMLElement;
+      for (const [, inst] of termInstances) {
+        if (inst.term.element === xtermEl) {
+          inst.term.scrollLines(Math.sign(e.deltaY) * SCROLL_LINES);
+          break;
+        }
+      }
     };
     document.addEventListener('wheel', handler, { capture: true, passive: false } as any);
     return () => {
@@ -899,23 +911,24 @@ export function TerminalView({ onBack }: Props) {
     : checkedTabs.length <= 9 ? 3
     : 4;
 
-  // Tile mode: CSS scale to preserve terminal content without any resize.
-  // fitAddon.fit() or PTY resize would cause alternate-screen apps (Claude Code)
-  // to clear and redraw at idle state, losing visible content. CSS transform:scale()
-  // shrinks the full-viewport terminal visually into the tile cell.
+  // Tile mode: reduce font size + fitAddon.fit() for readable tiles.
+  // PTY resize is suppressed to prevent SIGWINCH → agent re-render / content duplication.
+  // Old content may soft-wrap but new output continues at full PTY width.
   useEffect(() => {
     if (!tileMode || !fontReady) {
       if (!tileMode) {
         setFocusedTileId(null);
-        // Restore any inline overrides and refit ALL terminals
+        // Restore font size and inline overrides, refit ALL terminals
         for (const [id, inst] of termInstances) {
           if (inst.term.element) {
             inst.term.element.style.transform = '';
             inst.term.element.style.transformOrigin = '';
             inst.term.element.style.width = '';
             inst.term.element.style.height = '';
+            inst.term.element.style.overflow = '';
           }
-          // Fit the active (visible) terminal immediately; others on next tab switch
+          inst.term.options.fontSize = globalFontSizeRef.current;
+          // Fit active terminal with PTY resize to re-sync tmux
           if (id === activeTabId) {
             try { inst.fitAddon.fit(); } catch {}
             inst.term.refresh(0, inst.term.rows - 1);
@@ -945,7 +958,13 @@ export function TerminalView({ onBack }: Props) {
     const scaleTiles = () => {
       if (cancelled) return;
       const checked = tabsRef.current.filter(t => t.checked);
+      // Scale font down for tiles: reduce by 2px for 2+ tiles, 1px for single
+      const base = globalFontSizeRef.current;
+      const tileFontSize = checked.length >= 2
+        ? Math.max(MIN_FONT_SIZE, base - 3)
+        : Math.max(MIN_FONT_SIZE, base - 1);
 
+      suppressPtyResize = true;
       for (const tab of checked) {
         const container = containerRefs.current.get(tab.id);
         if (!container || !container.isConnected) continue;
@@ -953,40 +972,19 @@ export function TerminalView({ onBack }: Props) {
         if (!inst?.term.element) continue;
 
         const termEl = inst.term.element;
-        const isAltBuffer = inst.term.buffer.active.type === 'alternate';
+        // Clear any prior CSS scale overrides
+        termEl.style.transform = '';
+        termEl.style.transformOrigin = '';
+        termEl.style.width = '';
+        termEl.style.height = '';
+        termEl.style.overflow = '';
 
-        if (isAltBuffer) {
-          // Alternate screen (Claude Code TUI, tmux copy mode, etc.):
-          // CSS scale to preserve content — any resize would clear the buffer.
-          suppressPtyResize = true;
-          const screen = termEl.querySelector('.xterm-screen') as HTMLElement | null;
-          const naturalW = screen?.offsetWidth || termEl.offsetWidth;
-          const naturalH = screen?.offsetHeight || termEl.offsetHeight;
-
-          termEl.style.width = naturalW + 'px';
-          termEl.style.height = naturalH + 'px';
-          termEl.style.transformOrigin = 'top left';
-          termEl.style.overflow = 'hidden';
-
-          const containerW = container.clientWidth;
-          const containerH = container.clientHeight;
-          if (containerW > 0 && containerH > 0 && naturalW > 0 && naturalH > 0) {
-            const scale = Math.min(containerW / naturalW, containerH / naturalH, 1);
-            termEl.style.transform = `scale(${scale})`;
-          }
-          suppressPtyResize = false;
-        } else {
-          // Normal buffer: fitAddon.fit() for readable font + proper line wrapping.
-          // Content lives in scrollback and survives resize.
-          termEl.style.transform = '';
-          termEl.style.transformOrigin = '';
-          termEl.style.width = '';
-          termEl.style.height = '';
-          termEl.style.overflow = '';
-          try { inst.fitAddon.fit(); } catch {}
-          inst.term.refresh(0, inst.term.rows - 1);
-        }
+        // Reduce font and fit to tile container — no PTY resize
+        inst.term.options.fontSize = tileFontSize;
+        try { inst.fitAddon.fit(); } catch {}
+        inst.term.scrollToBottom();
       }
+      suppressPtyResize = false;
     };
 
     // Apply after layout settles (two rAFs for grid to be fully rendered)
@@ -1053,6 +1051,15 @@ export function TerminalView({ onBack }: Props) {
       } else if (mod && e.shiftKey && e.key === 'D') {
         e.preventDefault();
         setShowTodoPanel(prev => !prev);
+      } else if (mod && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        setGlobalFontSize(s => Math.min(MAX_FONT_SIZE, s + 1));
+      } else if (mod && e.key === '-') {
+        e.preventDefault();
+        setGlobalFontSize(s => Math.max(MIN_FONT_SIZE, s - 1));
+      } else if (mod && e.key === '0') {
+        e.preventDefault();
+        setGlobalFontSize(DEFAULT_FONT_SIZE);
       }
     };
     window.addEventListener('keydown', handler);
@@ -1325,6 +1332,38 @@ export function TerminalView({ onBack }: Props) {
           >
             <AppsIcon size={16} />
           </button>
+          {/* Font size controls */}
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', flexShrink: 0, mx: '2px' }}>
+            <button
+              type="button"
+              aria-label="Decrease font size (⌘-)"
+              title={`Decrease font size (${globalFontSize}px)`}
+              disabled={globalFontSize <= MIN_FONT_SIZE}
+              onClick={() => setGlobalFontSize(s => Math.max(MIN_FONT_SIZE, s - 1))}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 20, height: 20, borderRadius: 4, cursor: globalFontSize <= MIN_FONT_SIZE ? 'default' : 'pointer',
+                opacity: globalFontSize <= MIN_FONT_SIZE ? 0.3 : 1,
+                backgroundColor: 'transparent', color: 'var(--fgColor-muted, #768390)',
+                border: 'none', padding: 0, fontSize: 14, fontWeight: 700, lineHeight: '20px',
+              }}
+            >−</button>
+            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fgColor-muted, #768390)', minWidth: 22, textAlign: 'center', userSelect: 'none' }}>{globalFontSize}</span>
+            <button
+              type="button"
+              aria-label="Increase font size (⌘+)"
+              title={`Increase font size (${globalFontSize}px)`}
+              disabled={globalFontSize >= MAX_FONT_SIZE}
+              onClick={() => setGlobalFontSize(s => Math.min(MAX_FONT_SIZE, s + 1))}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 20, height: 20, borderRadius: 4, cursor: globalFontSize >= MAX_FONT_SIZE ? 'default' : 'pointer',
+                opacity: globalFontSize >= MAX_FONT_SIZE ? 0.3 : 1,
+                backgroundColor: 'transparent', color: 'var(--fgColor-muted, #768390)',
+                border: 'none', padding: 0, fontSize: 14, fontWeight: 700, lineHeight: '20px',
+              }}
+            >+</button>
+          </Box>
           <ActionMenu>
             <ActionMenu.Anchor>
               <IconButton icon={LinkIcon} aria-label="Attach tmux session (⌘⇧L)" title="Attach tmux session (⌘⇧L)" variant="invisible" size="small" sx={{ flexShrink: 0, color: 'accent.fg' }} onClick={fetchTmuxSessions} />
