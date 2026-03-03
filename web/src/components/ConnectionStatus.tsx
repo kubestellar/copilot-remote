@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { memo, useEffect, useState, useRef } from 'react';
 import { Box, Text, Tooltip } from '@primer/react';
 import { api } from '../lib/api';
 
@@ -8,7 +8,7 @@ interface Props {
   connected: boolean; // WebSocket state
 }
 
-export function ConnectionStatus({ connected }: Props) {
+export const ConnectionStatus = memo(function ConnectionStatus({ connected }: Props) {
   const [apiReachable, setApiReachable] = useState<boolean | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
 
@@ -63,4 +63,4 @@ export function ConnectionStatus({ connected }: Props) {
       </button>
     </Tooltip>
   );
-}
+});

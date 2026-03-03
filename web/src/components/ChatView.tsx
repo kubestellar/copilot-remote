@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { memo, useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { Box, IconButton, Text, Label, Button } from '@primer/react';
 import { PaperAirplaneIcon, SquareIcon, PlayIcon, ChevronLeftIcon } from '@primer/octicons-react';
 import { MessageBubble } from './MessageBubble';
@@ -16,7 +16,7 @@ interface Props {
 /** Max milliseconds between two Escape presses to trigger clear */
 const DOUBLE_ESC_THRESHOLD_MS = 500;
 
-export function ChatView({ session, messages, onSend, onResume, onBack }: Props) {
+export const ChatView = memo(function ChatView({ session, messages, onSend, onResume, onBack }: Props) {
   const [input, setInput] = useState('');
   const [historicalMessages, setHistoricalMessages] = useState<ChatMessage[]>([]);
   const [resuming, setResuming] = useState(false);
@@ -220,4 +220,4 @@ export function ChatView({ session, messages, onSend, onResume, onBack }: Props)
       </Box>
     </Box>
   );
-}
+});

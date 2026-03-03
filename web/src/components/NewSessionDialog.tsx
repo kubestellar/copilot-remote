@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { memo, useState, useCallback } from 'react';
 import { Box, Text, TextInput, Button } from '@primer/react';
 import { XIcon } from '@primer/octicons-react';
 import { api } from '../lib/api';
@@ -8,7 +8,7 @@ interface Props {
   onCreated: (id: string) => void;
 }
 
-export function NewSessionDialog({ onClose, onCreated }: Props) {
+export const NewSessionDialog = memo(function NewSessionDialog({ onClose, onCreated }: Props) {
   const [prompt, setPrompt] = useState('');
   const [cwd, setCwd] = useState('');
   const [resumeId, setResumeId] = useState('');
@@ -89,4 +89,4 @@ export function NewSessionDialog({ onClose, onCreated }: Props) {
       </Box>
     </Box>
   );
-}
+});

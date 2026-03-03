@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { Box, Text } from '@primer/react';
 import type { useSwarmStatus } from '../hooks/useSwarmStatus';
 
@@ -10,7 +10,7 @@ interface SwarmPopoverProps {
   onClose: () => void;
 }
 
-export default function SwarmPopover({ swarm, onClose }: SwarmPopoverProps) {
+const SwarmPopover = memo(function SwarmPopover({ swarm, onClose }: SwarmPopoverProps) {
   const [newKeyLabel, setNewKeyLabel] = useState('');
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [keys, setKeys] = useState<Array<{
@@ -250,7 +250,9 @@ export default function SwarmPopover({ swarm, onClose }: SwarmPopoverProps) {
       )}
     </div>
   );
-}
+});
+
+export default SwarmPopover;
 
 /** Shared small button style */
 const smallBtnStyle: React.CSSProperties = {

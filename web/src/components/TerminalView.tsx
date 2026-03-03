@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -313,7 +313,7 @@ interface Props {
   onBack?: () => void;
 }
 
-export function TerminalView({ onBack }: Props) {
+export const TerminalView = memo(function TerminalView({ onBack }: Props) {
   const [tabs, setTabs] = useState<TermTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [tileMode, setTileMode] = useState(() => localStorage.getItem(TILE_MODE_KEY) === 'true');
@@ -1800,4 +1800,4 @@ export function TerminalView({ onBack }: Props) {
       </Box>{/* end main content flex */}
     </Box>
   );
-}
+});

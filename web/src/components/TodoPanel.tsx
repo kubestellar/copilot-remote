@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { memo, useState, useCallback, useRef, useEffect } from 'react';
 import { Box, Text } from '@primer/react';
 import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon, StopIcon, ClockIcon, PlayIcon, CopilotIcon } from '@primer/octicons-react';
 import type { TodoItem } from '../types';
@@ -100,7 +100,7 @@ interface TodoPanelProps {
   onReorderItem: (id: string, direction: 'up' | 'down') => void;
 }
 
-export default function TodoPanel({
+const TodoPanel = memo(function TodoPanel({
   items,
   todoMode,
   tabs: _tabs,
@@ -786,7 +786,9 @@ export default function TodoPanel({
       )}
     </Box>
   );
-}
+});
+
+export default TodoPanel;
 
 /** Small action button for todo item actions */
 function ActionButton({

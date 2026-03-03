@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { memo, useState, useCallback } from 'react';
 import { Box, Text, ActionList, Button, Spinner, Label, RelativeTime, TextInput } from '@primer/react';
 import { PlusIcon, SyncIcon, PencilIcon, XIcon, TagIcon, ChevronDownIcon, ChevronRightIcon, TrashIcon } from '@primer/octicons-react';
 import { api } from '../lib/api';
@@ -33,7 +33,7 @@ interface Props {
   onEditingChange?: (editing: boolean) => void;
 }
 
-export function SessionList({ sessions, loading, error, activeId, onSelect, onDelete, onNew, onRefresh, onEditingChange }: Props) {
+export const SessionList = memo(function SessionList({ sessions, loading, error, activeId, onSelect, onDelete, onNew, onRefresh, onEditingChange }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [copilotCollapsed, setCopilotCollapsed] = useState(false);
   const [editName, setEditName] = useState('');
@@ -233,4 +233,4 @@ export function SessionList({ sessions, loading, error, activeId, onSelect, onDe
       </ActionList>
     </Box>
   );
-}
+});
