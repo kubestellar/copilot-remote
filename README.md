@@ -56,7 +56,8 @@ This is basically a job queue for your AI agents. You add commands, and they get
 - **⏱️ Schedule Picker** — Click the clock icon on any task to set it up as recurring with a custom interval. One click to add a schedule, one click to remove it
 - **▶️ Run Now** — Got a scheduled task waiting for its next run? Hit "Run Now" to skip the wait and dispatch it immediately
 - **📋 Queue Last Command** — See something cool running in a terminal? Hit the clipboard button in the tile header to grab whatever command was last sent and add it straight to your queue
-- **✏️ Inline Editing** — Double-click any task description to edit it in place. Full multiline support so you can write big prompts
+- **✏️ Prompt Editor** — Double-click any task to open a full modal editor. The "Help from AI" button suggests improvements to save tokens and improve output clarity. One-click "Use suggestion" to apply
+- **📏 Line Clamping** — Long prompts show max 4 lines with ellipsis in the queue. Hover to see the full text. Double-click to open the editor
 - **📏 Resizable Panel** — Drag the left edge of the todo panel to make it wider or narrower. Your preferred width sticks across page refreshes
 - **🔀 Reorder** — Move tasks up and down in the queue with arrow buttons to control what gets dispatched first
 - **🧹 Clear Completed** — One button to clean out all the finished tasks
@@ -90,6 +91,27 @@ Want your friends or teammates to add tasks to your queue from their own devices
 - **🗑️ Tab Terminate** — Click the trash icon on any tab to kill the underlying tmux session. Clean up terminals you're done with without leaving the browser
 - **💡 Last Intent** — Each tile header shows what command was last sent to that terminal, so you can tell at a glance what each agent is working on
 - **💾 State Persistence** — Your tile mode, which tabs are checked, and which tab is active all persist across page refreshes. Come back to exactly where you left off
+- **✨ Session Title Summarization** — Click the sparkle button on any tab to generate an AI-summarized title based on what's happening in that terminal. Auto-summarizes on first prompt detection
+- **🖱️ Focus Mode Toggle** — Switch between hover-to-focus and click-to-focus for terminal tiles. Hover mode automatically focuses whichever tile your mouse is over
+
+### Rocket Scroll Fix
+
+> **This is a solved problem.** We developed a 4-layer fix for the "rocket scroll" bug that affects every xterm.js-based web terminal running AI CLI tools. The fix has been submitted to GitHub Copilot CLI ([github/copilot-cli#1805](https://github.com/github/copilot-cli/issues/1805)) and references multiple Anthropic bug reports. Full technical details below.
+
+AI CLI tools like Copilot CLI and Claude Code use rapid ANSI control sequences to render rich TUI interfaces. When combined with macOS trackpad momentum scrolling and unbounded data flow, this causes uncontrollable "rocket scroll" — the terminal oscillates at extreme speed, making sessions unusable. This is a [widely reported issue](https://github.com/anthropics/claude-code/issues/826) affecting users worldwide.
+
+**Our 4-layer solution (PRs #150-#165):**
+
+| Layer | What it does | Impact |
+|-------|-------------|--------|
+| **1. Wheel Interception** | Document-level capture handler blocks all native wheel events on `.xterm`, detects macOS momentum via delta decay patterns, re-dispatches clamped synthetic events (max ±3px, ~8/sec) | Eliminates trackpad momentum runaway |
+| **2. RAF Write Batching** | `TerminalWriter` class accumulates WebSocket data and flushes once per `requestAnimationFrame` instead of per-chunk | Reduces `term.write()` from hundreds/sec to ~60/sec |
+| **3. DEC 2026 Sync** | Detects `ESC[?2026h`/`ESC[?2026l` sequences, buffers during sync mode, flushes atomically | Prevents rendering intermediate TUI states |
+| **4. Backpressure** | Tracks xterm.js write buffer size (128KB high / 16KB low watermarks), signals server to pause/resume PTY reads via WebSocket | Prevents unbounded memory growth and jank |
+
+**Related Anthropic bug reports:** [#826](https://github.com/anthropics/claude-code/issues/826), [#3648](https://github.com/anthropics/claude-code/issues/3648), [#10304](https://github.com/anthropics/claude-code/issues/10304), [#10835](https://github.com/anthropics/claude-code/issues/10835), [#11719](https://github.com/anthropics/claude-code/issues/11719), [#11801](https://github.com/anthropics/claude-code/issues/11801), [#17938](https://github.com/anthropics/claude-code/issues/17938), [#1913](https://github.com/anthropics/claude-code/issues/1913)
+
+**135 automated tests** cover all layers — momentum detection, RAF batching, DEC 2026 sync, backpressure watermarks, and font size interactions. Zero rocket scroll reports since deployment.
 
 ### Organization
 - **🏷️ Session Names** — Rename sessions inline with a tap on the pencil icon
@@ -107,6 +129,9 @@ Want your friends or teammates to add tasks to your queue from their own devices
 - **🔄 Auto-restart** — `start.sh` script keeps both servers alive with infinite restart loops
 - **🔒 Token Auth** — Server generates a random 256-bit token on first run; all API/WebSocket calls require it
 - **🤖 Auto-QA** — GitHub Actions workflow runs hourly quality checks (build, lint, security, a11y, performance) with rotating focus areas
+- **🧪 Nightly E2E Tests** — Playwright-based nightly workflow tests clipboard, tile mode, persistence, scroll containment, and WebSocket reconnection. Auto-creates GitHub issues on failure
+- **🧪 135 Unit Tests** — 90 server-side tests (rate limiter, blocklist, prompt detector, session meta, todo store) + 45 web tests (scroll handler, TerminalWriter, font size, focus mode)
+- **🔄 Self-Update** — Update button in the toolbar checks for new commits on main, shows behind count, and can pull + rebuild + restart the server in one click
 - **🧹 Session Dedup** — Server prevents duplicate terminal attachments; client cleans up stale terminals on reconnect
 - **🛡️ Error Boundary** — React ErrorBoundary catches render crashes and shows a recovery UI instead of a blank white screen. Your app won't just die on you
 - **♿ Accessibility** — All interactive elements have proper ARIA labels and keyboard equivalents. Screen readers and keyboard-only navigation actually work
@@ -120,6 +145,7 @@ Want your friends or teammates to add tasks to your queue from their own devices
 - **⚡ Memoized Rendering** — `React.memo` on MessageBubble and `useMemo` on message arrays prevent re-rendering 500+ messages on every keystroke
 - **📊 Smart Filtering** — Empty-content events (tool call artifacts) are filtered out, keeping only meaningful messages
 - **⏸️ Polling Pause** — Session list polling pauses during inline editing to prevent input lag
+- **🚀 TerminalWriter** — RAF-based write batching + DEC 2026 synchronized output + backpressure watermarks prevent data flood from AI CLI output (see [Rocket Scroll Fix](#rocket-scroll-fix))
 
 ## Prerequisites
 
