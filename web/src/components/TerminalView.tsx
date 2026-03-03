@@ -279,13 +279,16 @@ export function TerminalView({ onBack }: Props) {
   useEffect(() => {
     localStorage.setItem(FONT_SIZE_KEY, String(globalFontSize));
     if (tileMode) return; // tile mode manages its own font size
-    for (const [id, inst] of termInstances) {
+    for (const [, inst] of termInstances) {
       inst.term.options.fontSize = globalFontSize;
-      if (id === activeTabId) {
+    }
+    // Delay fit until after xterm.js re-renders with new font metrics
+    requestAnimationFrame(() => {
+      for (const [, inst] of termInstances) {
         try { inst.fitAddon.fit(); } catch {}
       }
-    }
-  }, [globalFontSize, activeTabId, tileMode]);
+    });
+  }, [globalFontSize, tileMode]);
 
   // Getter for termInstances (passed to hook to avoid stale closure)
   const getTermInstances = useCallback(() => termInstances, []);
