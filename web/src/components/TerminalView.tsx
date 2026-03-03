@@ -871,46 +871,36 @@ export function TerminalView({ onBack }: Props) {
     return () => window.removeEventListener('resize', handleResize);
   }, [tileMode]);
 
-  // Prevent macOS trackpad momentum "rocket scroll" while preserving scroll
-  // functionality in tmux. We block the raw wheel event, throttle aggressively,
-  // then re-dispatch a minimal synthetic event so xterm.js sends mouse-wheel
-  // escape sequences to tmux naturally. scrollLines() alone doesn't work because
-  // tmux uses alternate screen where xterm.js has no scrollback buffer.
+  // Prevent macOS trackpad momentum "rocket scroll" while preserving normal
+  // scroll in tmux. Instead of blocking-then-redispatching (which breaks xterm.js
+  // internal handlers), we simply THROTTLE: block events that arrive too fast,
+  // let one real native event through every THROTTLE_MS. xterm.js handles the
+  // native events normally — sending mouse escape sequences to tmux, scrolling
+  // its own buffer, etc.
   useEffect(() => {
     let lastWheel = 0;
-    const THROTTLE_MS = 200;  // 5 scroll events/sec max — very aggressive anti-momentum
+    const THROTTLE_MS = 150;  // ~6-7 scroll events/sec max
 
     const handler = (e: WheelEvent) => {
-      // Let our synthetic events pass through to xterm.js
-      if ((e as any).__smoothScroll) return;
-
       const target = e.target as HTMLElement;
       if (!target?.closest?.('.xterm')) return;
 
-      e.preventDefault();
-      e.stopImmediatePropagation();
-
-      // Skip during font changes / terminal reflow
-      if (suppressScroll) return;
+      // During font changes, block all scroll
+      if (suppressScroll) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
 
       const now = performance.now();
-      if (now - lastWheel < THROTTLE_MS) return;
+      if (now - lastWheel < THROTTLE_MS) {
+        // Too fast — block this event entirely
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
       lastWheel = now;
-
-      // Re-dispatch with minimal deltaY (just the direction sign × small value).
-      // xterm.js only checks the sign for mouse-wheel escape sequences to tmux,
-      // so the magnitude doesn't matter — what matters is the rate.
-      const synth = new WheelEvent('wheel', {
-        deltaX: 0,
-        deltaY: e.deltaY > 0 ? 3 : -3,
-        deltaMode: 0,
-        bubbles: true,
-        cancelable: true,
-        clientX: e.clientX,
-        clientY: e.clientY,
-      });
-      Object.defineProperty(synth, '__smoothScroll', { value: true });
-      target.dispatchEvent(synth);
+      // Let this event through to xterm.js naturally — no re-dispatch needed
     };
     document.addEventListener('wheel', handler, { capture: true, passive: false } as any);
     return () => {
