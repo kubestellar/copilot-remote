@@ -251,6 +251,18 @@ class TerminalManager extends EventEmitter {
     }
   }
 
+  /** Pause reading from the PTY stream (OS-level backpressure) */
+  pause(id: string): void {
+    const t = this.terminals.get(id);
+    if (t) t.pty.pause();
+  }
+
+  /** Resume reading from the PTY stream */
+  resume(id: string): void {
+    const t = this.terminals.get(id);
+    if (t) t.pty.resume();
+  }
+
   write(id: string, data: string): boolean {
     const t = this.terminals.get(id);
     if (!t) return false;

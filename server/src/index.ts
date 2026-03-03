@@ -661,12 +661,18 @@ termWss.on('connection', (ws, req) => {
     return;
   }
 
-  // Forward PTY output → WebSocket
+  // Forward PTY output → WebSocket (with backpressure support)
   let ptyPaused = false;
+  let pauseBuffer = '';  // buffer data arriving between pause signal and PTY actually stopping
   const onData = (id: string, data: string) => {
-    if (id === termId && ws.readyState === WebSocket.OPEN && !ptyPaused) {
-      ws.send(data);
+    if (id !== termId || ws.readyState !== WebSocket.OPEN) return;
+    if (ptyPaused) {
+      // PTY may emit a few more events after pause() is called (already-queued reads).
+      // Buffer them instead of dropping so no data is lost.
+      pauseBuffer += data;
+      return;
     }
+    ws.send(data);
   };
   const onExit = (id: string, exitCode: number) => {
     if (id === termId && ws.readyState === WebSocket.OPEN) {
@@ -702,13 +708,21 @@ termWss.on('connection', (ws, req) => {
         terminalManager.resize(termId, parsed.cols, parsed.rows);
         return;
       }
-      // Flow control: frontend signals backpressure
+      // Flow control: frontend signals backpressure — pause/resume the PTY stream
+      // so the kernel buffer fills and the writing process naturally throttles
       if (parsed.type === 'pause') {
         ptyPaused = true;
+        terminalManager.pause(termId);
         return;
       }
       if (parsed.type === 'resume') {
         ptyPaused = false;
+        // Flush any data that was buffered during the pause
+        if (pauseBuffer) {
+          ws.send(pauseBuffer);
+          pauseBuffer = '';
+        }
+        terminalManager.resume(termId);
         return;
       }
       if (parsed.type === 'watch-prompt') {
@@ -726,6 +740,12 @@ termWss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    // Resume PTY if it was paused — prevents stale pause on reconnect
+    if (ptyPaused) {
+      terminalManager.resume(termId);
+      ptyPaused = false;
+      pauseBuffer = '';
+    }
     terminalManager.removeListener('data', onData);
     terminalManager.removeListener('exit', onExit);
     terminalManager.removeListener('command', onCommand);
