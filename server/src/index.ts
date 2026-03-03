@@ -179,6 +179,68 @@ app.post('/api/sessions/:id/send', async (req, res) => {
   }
 });
 
+// Prompt improvement — uses a temporary ACP session to get AI suggestions
+app.post('/api/improve-prompt', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    res.status(400).json({ error: 'prompt required' });
+    return;
+  }
+
+  const metaPrompt = `You are a prompt engineering expert. Improve the following CLI/AI prompt to be more concise, save tokens, and produce clearer output. Return ONLY the improved prompt text, no explanation or preamble.
+
+Original prompt:
+${prompt}`;
+
+  const sessionId = `_improve_${Date.now()}`;
+  let result = '';
+  const chunkHandler = (sid: string, text: string) => {
+    if (sid === sessionId) result += text;
+  };
+  const doneHandler = (sid: string) => {
+    if (sid === sessionId) {
+      acpManager.off('chunk', chunkHandler);
+      acpManager.off('turn_complete', doneHandler);
+      acpManager.off('error', errorHandler);
+      acpManager.destroy(sessionId);
+      res.json({ improved: result.trim() || prompt });
+    }
+  };
+  const errorHandler = (sid: string, err: unknown) => {
+    if (sid === sessionId) {
+      acpManager.off('chunk', chunkHandler);
+      acpManager.off('turn_complete', doneHandler);
+      acpManager.off('error', errorHandler);
+      acpManager.destroy(sessionId);
+      const msg = err instanceof Error ? err.message : String(err);
+      res.json({ improved: prompt, error: msg });
+    }
+  };
+
+  // Timeout after 30s
+  const timeout = setTimeout(() => {
+    acpManager.off('chunk', chunkHandler);
+    acpManager.off('turn_complete', doneHandler);
+    acpManager.off('error', errorHandler);
+    acpManager.destroy(sessionId);
+    res.json({ improved: result.trim() || prompt, error: 'timeout' });
+  }, 30_000);
+
+  acpManager.on('chunk', chunkHandler);
+  acpManager.on('turn_complete', (sid: string, _reason?: string) => { clearTimeout(timeout); doneHandler(sid); });
+  acpManager.on('error', (sid: string, err: unknown) => { clearTimeout(timeout); errorHandler(sid, err); });
+
+  try {
+    await acpManager.sendPrompt(sessionId, metaPrompt);
+  } catch (err: any) {
+    clearTimeout(timeout);
+    acpManager.off('chunk', chunkHandler);
+    acpManager.off('turn_complete', doneHandler);
+    acpManager.off('error', errorHandler);
+    res.json({ improved: prompt, error: err.message });
+  }
+});
+
 // WebSocket
 const wss = new WebSocketServer({ noServer: true });
 

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Box, Text } from '@primer/react';
-import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon, StopIcon, ClockIcon, PlayIcon } from '@primer/octicons-react';
+import { XIcon, SyncIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon, StopIcon, ClockIcon, PlayIcon, CopilotIcon } from '@primer/octicons-react';
 import type { TodoItem } from '../types';
 
 /** Default width of the todo panel in pixels */
@@ -26,6 +26,9 @@ const COUNTDOWN_REFRESH_INTERVAL_MS = 1000;
 
 /** Max milliseconds between two Escape presses to trigger clear */
 const DOUBLE_ESC_THRESHOLD_MS = 500;
+
+/** Maximum visible lines for todo descriptions before truncation */
+const DESCRIPTION_MAX_LINES = 4;
 
 /** Preset interval options for recurring items */
 const RECURRING_PRESETS = [
@@ -118,6 +121,8 @@ export default function TodoPanel({
   const lastEscRef = useRef(0);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
+  const [aiSuggestion, setAiSuggestion] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
 
   // Track which item's schedule picker is open (null = none)
   const [schedulingItemId, setSchedulingItemId] = useState<string | null>(null);
@@ -435,6 +440,7 @@ export default function TodoPanel({
                 borderBottom: '1px solid',
                 borderColor: 'border.muted',
                 display: 'flex',
+                flexWrap: 'wrap',
                 alignItems: 'flex-start',
                 gap: '6px',
                 bg: item.status === 'running' ? 'attention.subtle' : 'transparent',
@@ -460,59 +466,24 @@ export default function TodoPanel({
 
               {/* Content */}
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                {editingItemId === item.id ? (
-                  <textarea
-                    autoFocus
-                    value={editingValue}
-                    onChange={e => {
-                      setEditingValue(e.target.value);
-                      e.target.style.height = 'auto';
-                      e.target.style.height = `${e.target.scrollHeight}px`;
-                    }}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        const trimmed = editingValue.trim();
-                        if (trimmed) onUpdateItemText(item.id, trimmed);
-                        setEditingItemId(null);
-                      } else if (e.key === 'Escape') {
-                        setEditingItemId(null);
-                      }
-                      e.stopPropagation();
-                    }}
-                    onBlur={() => {
-                      const trimmed = editingValue.trim();
-                      if (trimmed) onUpdateItemText(item.id, trimmed);
-                      setEditingItemId(null);
-                    }}
-                    ref={el => {
-                      if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; }
-                    }}
-                    rows={1}
-                    style={{
-                      fontSize: '11px', fontFamily: 'monospace', background: 'var(--bgColor-default, #0d1117)',
-                      color: 'var(--fgColor-default, #e6edf3)', border: '1px solid var(--borderColor-accent-emphasis, #58a6ff)',
-                      borderRadius: 4, padding: '2px 4px', width: '100%', outline: 'none',
-                      resize: 'none', overflow: 'hidden', lineHeight: '1.4', boxSizing: 'border-box',
-                    }}
-                  />
-                ) : (
-                  <Text
-                    onDoubleClick={() => { setEditingItemId(item.id); setEditingValue(item.description); }}
-                    title="Double-click to edit"
-                    sx={{
-                      fontSize: '11px',
-                      fontFamily: 'mono',
-                      color: item.status === 'done' && !item.recurring ? 'fg.muted' : 'fg.default',
-                      textDecoration: item.status === 'done' && !item.recurring ? 'line-through' : 'none',
-                      wordBreak: 'break-all',
-                      display: 'block',
-                      cursor: 'text',
-                    }}
-                  >
-                    {item.description}
-                  </Text>
-                )}
+                <Text
+                  onDoubleClick={() => { setEditingItemId(item.id); setEditingValue(item.description); setAiSuggestion(''); }}
+                  title={item.description}
+                  sx={{
+                    fontSize: '11px',
+                    fontFamily: 'mono',
+                    color: item.status === 'done' && !item.recurring ? 'fg.muted' : 'fg.default',
+                    textDecoration: item.status === 'done' && !item.recurring ? 'line-through' : 'none',
+                    wordBreak: 'break-all',
+                    display: '-webkit-box',
+                    WebkitLineClamp: DESCRIPTION_MAX_LINES,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                    cursor: 'text',
+                  }}
+                >
+                  {item.description}
+                </Text>
                 {item.status === 'running' && item.assignedTileName && (
                   <Text sx={{ fontSize: '9px', color: 'attention.fg', mt: '2px', display: 'block' }}>
                     running in tab named: {item.assignedTileName}
@@ -591,6 +562,7 @@ export default function TodoPanel({
                     ml: '18px',
                     alignItems: 'center',
                     flexWrap: 'wrap',
+                    width: '100%',
                   }}
                 >
                   <Text sx={{ fontSize: '10px', color: 'fg.muted' }}>Schedule:</Text>
@@ -664,6 +636,154 @@ export default function TodoPanel({
         </Box>
       )}
       </Box>
+
+      {/* Edit Prompt Modal */}
+      {editingItemId && (
+        <div
+          onClick={() => setEditingItemId(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.6)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            onKeyDown={e => e.stopPropagation()}
+            style={{
+              background: 'var(--bgColor-default, #0d1117)',
+              border: '1px solid var(--borderColor-default, #30363d)',
+              borderRadius: 12, padding: 20, width: '90vw', maxWidth: 560,
+              maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fgColor-default, #e6edf3)' }}>
+                Edit Prompt
+              </span>
+              <button
+                type="button"
+                onClick={() => setEditingItemId(null)}
+                style={{
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  color: 'var(--fgColor-muted, #8b949e)', fontSize: 16, padding: '2px 6px',
+                }}
+              >✕</button>
+            </div>
+            <textarea
+              autoFocus
+              value={editingValue}
+              onChange={e => setEditingValue(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  const trimmed = editingValue.trim();
+                  if (trimmed && editingItemId) { onUpdateItemText(editingItemId, trimmed); }
+                  setEditingItemId(null);
+                } else if (e.key === 'Escape') {
+                  setEditingItemId(null);
+                }
+                e.stopPropagation();
+              }}
+              rows={8}
+              style={{
+                width: '100%', padding: '8px 10px', borderRadius: 6,
+                border: '1px solid var(--borderColor-default, #30363d)',
+                background: 'var(--bgColor-inset, #010409)',
+                color: 'var(--fgColor-default, #e6edf3)',
+                fontSize: 12, fontFamily: 'monospace', lineHeight: '1.5',
+                outline: 'none', resize: 'vertical', boxSizing: 'border-box',
+              }}
+            />
+            {/* AI suggestion area */}
+            {aiSuggestion && (
+              <div style={{
+                padding: '8px 10px', borderRadius: 6,
+                background: 'var(--bgColor-accent-muted, #121d2f)',
+                border: '1px solid var(--borderColor-accent-muted, #1f3d5c)',
+                fontSize: 11, fontFamily: 'monospace', lineHeight: '1.5',
+                color: 'var(--fgColor-default, #e6edf3)',
+                maxHeight: 160, overflowY: 'auto', whiteSpace: 'pre-wrap',
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: '#58a6ff', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <CopilotIcon size={12} /> AI Suggestion
+                </div>
+                {aiSuggestion}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
+              <button
+                type="button"
+                disabled={aiLoading || !editingValue.trim()}
+                onClick={async () => {
+                  setAiLoading(true);
+                  setAiSuggestion('');
+                  try {
+                    const base = localStorage.getItem('copilot-remote-server') || '';
+                    const token = localStorage.getItem('copilot-remote-token') || '';
+                    const resp = await fetch(`${base}/api/improve-prompt`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                      body: JSON.stringify({ prompt: editingValue }),
+                    });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    setAiSuggestion(data.improved || data.error || 'No suggestion returned');
+                  } catch (err: any) {
+                    setAiSuggestion(`Error: ${err.message}`);
+                  } finally {
+                    setAiLoading(false);
+                  }
+                }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '6px 12px', borderRadius: 6, border: 'none',
+                  background: aiLoading ? '#484f58' : '#1f6feb',
+                  color: '#ffffff', fontSize: 12, fontWeight: 600,
+                  cursor: aiLoading ? 'wait' : 'pointer', opacity: !editingValue.trim() ? 0.4 : 1,
+                }}
+              >
+                <CopilotIcon size={14} />
+                {aiLoading ? 'Thinking...' : 'Help from AI'}
+              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {aiSuggestion && (
+                  <button
+                    type="button"
+                    onClick={() => { setEditingValue(aiSuggestion); setAiSuggestion(''); }}
+                    style={{
+                      padding: '6px 12px', borderRadius: 6,
+                      border: '1px solid #1f6feb', background: 'transparent',
+                      color: '#58a6ff', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    Use suggestion
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const trimmed = editingValue.trim();
+                    if (trimmed && editingItemId) { onUpdateItemText(editingItemId, trimmed); }
+                    setEditingItemId(null);
+                  }}
+                  style={{
+                    padding: '6px 16px', borderRadius: 6, border: 'none',
+                    background: '#238636', color: '#ffffff', fontSize: 12,
+                    fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--fgColor-muted, #6e7681)' }}>
+              ⌘+Enter to save · Esc to cancel
+            </span>
+          </div>
+        </div>
+      )}
     </Box>
   );
 }
