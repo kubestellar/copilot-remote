@@ -1,27 +1,34 @@
 /**
  * Tests for the terminal wheel-event scroll handler.
  *
- * The handler intercepts wheel events on .xterm elements, clamps deltaY to
- * prevent macOS trackpad momentum "rocket scroll", throttles the rate, then
- * re-dispatches a synthetic event so xterm.js handles scrollback AND tmux
- * mouse-sequence forwarding naturally.
+ * The handler intercepts ALL wheel events on .xterm elements to prevent macOS
+ * trackpad momentum "rocket scroll". Instead of re-dispatching, it calls
+ * term.scrollLines() with a fixed small step count.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Handler constants (must match TerminalView.tsx) ─────────────────────
-const THROTTLE_MS = 80;
-const MAX_DELTA_Y = 150;
+const THROTTLE_MS = 100;
+const SCROLL_LINES = 3;
+
+/**
+ * Mock terminal instances map — mirrors the module-level termInstances in
+ * TerminalView.tsx. The handler iterates this to find the terminal whose
+ * container owns the event target.
+ */
+const termInstances = new Map<string, {
+  term: { scrollLines: ReturnType<typeof vi.fn> };
+  container: HTMLDivElement | null;
+}>();
 
 /**
  * Standalone version of the scroll handler logic extracted from TerminalView.
- * Attaches to `document` in capture phase, just like the real code.
+ * Uses the local termInstances map above.
  */
 function installScrollHandler() {
   let lastWheel = 0;
 
   const handler = (e: WheelEvent) => {
-    if ((e as any).__clampedScroll) return;
-
     const target = e.target as HTMLElement;
     if (!target?.closest?.('.xterm')) return;
 
@@ -32,22 +39,13 @@ function installScrollHandler() {
     if (now - lastWheel < THROTTLE_MS) return;
     lastWheel = now;
 
-    const clampedDeltaY =
-      Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), MAX_DELTA_Y);
-    const synth = new WheelEvent('wheel', {
-      deltaX: e.deltaX,
-      deltaY: clampedDeltaY,
-      deltaZ: e.deltaZ,
-      deltaMode: e.deltaMode,
-      bubbles: true,
-      cancelable: true,
-      clientX: e.clientX,
-      clientY: e.clientY,
-      screenX: e.screenX,
-      screenY: e.screenY,
-    });
-    Object.defineProperty(synth, '__clampedScroll', { value: true });
-    target.dispatchEvent(synth);
+    const direction = e.deltaY > 0 ? -SCROLL_LINES : SCROLL_LINES;
+    for (const [, inst] of termInstances) {
+      if (inst.container?.contains(target)) {
+        inst.term.scrollLines(direction);
+        break;
+      }
+    }
   };
 
   document.addEventListener('wheel', handler, { capture: true });
@@ -55,14 +53,16 @@ function installScrollHandler() {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
-function createXtermElement(): HTMLDivElement {
+function createXtermElement(): { container: HTMLDivElement; inner: HTMLDivElement } {
+  const container = document.createElement('div');
   const xterm = document.createElement('div');
   xterm.classList.add('xterm');
   const inner = document.createElement('div');
   inner.classList.add('xterm-screen');
   xterm.appendChild(inner);
-  document.body.appendChild(xterm);
-  return inner; // wheel events target the inner element
+  container.appendChild(xterm);
+  document.body.appendChild(container);
+  return { container, inner };
 }
 
 function fireWheel(target: HTMLElement, deltaY: number) {
@@ -78,65 +78,52 @@ function fireWheel(target: HTMLElement, deltaY: number) {
 // ── Tests ───────────────────────────────────────────────────────────────
 describe('Terminal scroll handler', () => {
   let cleanup: () => void;
+  let container: HTMLDivElement;
   let target: HTMLDivElement;
+  let mockTerm: { scrollLines: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
-    target = createXtermElement();
+    const el = createXtermElement();
+    container = el.container;
+    target = el.inner;
+    mockTerm = { scrollLines: vi.fn() };
+    termInstances.set('test-tab', { term: mockTerm, container });
     cleanup = installScrollHandler();
   });
 
   afterEach(() => {
     cleanup();
-    target.parentElement?.remove();
+    termInstances.clear();
+    container.remove();
   });
 
-  it('should dispatch a clamped synthetic event for normal scroll', () => {
-    const received: WheelEvent[] = [];
-    target.addEventListener('wheel', (e) => received.push(e));
-
+  it('should call scrollLines with negative direction for scroll down (natural scrolling)', () => {
     fireWheel(target, 100);
-
-    // Should receive exactly the synthetic clamped event
-    expect(received.length).toBe(1);
-    expect(received[0].deltaY).toBe(100);
-    expect((received[0] as any).__clampedScroll).toBe(true);
+    expect(mockTerm.scrollLines).toHaveBeenCalledWith(-SCROLL_LINES);
   });
 
-  it('should clamp extreme deltaY values (momentum protection)', () => {
-    const received: WheelEvent[] = [];
-    target.addEventListener('wheel', (e) => received.push(e));
-
-    fireWheel(target, 5000); // extreme momentum value
-
-    expect(received.length).toBe(1);
-    expect(received[0].deltaY).toBe(MAX_DELTA_Y); // clamped
+  it('should call scrollLines with positive direction for scroll up (natural scrolling)', () => {
+    fireWheel(target, -100);
+    expect(mockTerm.scrollLines).toHaveBeenCalledWith(SCROLL_LINES);
   });
 
-  it('should preserve negative deltaY direction (scroll up)', () => {
-    const received: WheelEvent[] = [];
-    target.addEventListener('wheel', (e) => received.push(e));
-
-    fireWheel(target, -300);
-
-    expect(received.length).toBe(1);
-    expect(received[0].deltaY).toBe(-MAX_DELTA_Y); // clamped, negative preserved
+  it('should use fixed step size regardless of deltaY magnitude', () => {
+    fireWheel(target, 5000); // extreme momentum
+    expect(mockTerm.scrollLines).toHaveBeenCalledWith(-SCROLL_LINES);
   });
 
-  it('should throttle rapid events', async () => {
-    const received: WheelEvent[] = [];
-    target.addEventListener('wheel', (e) => received.push(e));
-
-    // Fire two events in quick succession
+  it('should throttle rapid scroll events', async () => {
+    fireWheel(target, 50);
     fireWheel(target, 50);
     fireWheel(target, 50);
 
     // Only the first should pass throttle
-    expect(received.length).toBe(1);
+    expect(mockTerm.scrollLines).toHaveBeenCalledTimes(1);
 
     // Wait past throttle window then fire again
     await new Promise((r) => setTimeout(r, THROTTLE_MS + 10));
     fireWheel(target, 50);
-    expect(received.length).toBe(2);
+    expect(mockTerm.scrollLines).toHaveBeenCalledTimes(2);
   });
 
   it('should not intercept wheel events outside .xterm', () => {
@@ -149,37 +136,31 @@ describe('Terminal scroll handler', () => {
     const ev = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
     outside.dispatchEvent(ev);
 
-    // Event should pass through unmodified
     expect(prevented.length).toBe(1);
     expect(prevented[0]).toBe(false);
     outside.remove();
   });
 
-  it('should pass through synthetic __clampedScroll events untouched', () => {
-    const received: WheelEvent[] = [];
-    // Listen at the xterm parent level
-    target.parentElement!.addEventListener('wheel', (e) => received.push(e));
+  it('should block original event (preventDefault + stopImmediatePropagation)', () => {
+    const parentReceived: WheelEvent[] = [];
+    container.addEventListener('wheel', (e) => parentReceived.push(e));
 
-    const synth = new WheelEvent('wheel', {
-      deltaY: 42,
-      bubbles: true,
-      cancelable: true,
-    });
-    Object.defineProperty(synth, '__clampedScroll', { value: true });
-    target.dispatchEvent(synth);
+    fireWheel(target, 100);
 
-    // Should bubble up without being intercepted
-    expect(received.length).toBe(1);
-    expect(received[0].deltaY).toBe(42);
+    // Parent should NOT receive the event (stopImmediatePropagation in capture)
+    expect(parentReceived.length).toBe(0);
   });
 
-  it('should preserve small deltaY values without clamping', () => {
-    const received: WheelEvent[] = [];
-    target.addEventListener('wheel', (e) => received.push(e));
+  it('should match terminal by container.contains(target)', () => {
+    const mockTerm2 = { scrollLines: vi.fn() };
+    const el2 = createXtermElement();
+    termInstances.set('tab-2', { term: mockTerm2, container: el2.container });
 
-    fireWheel(target, 10); // well under MAX_DELTA_Y
+    // Scroll in terminal 2's element
+    fireWheel(el2.inner, 100);
+    expect(mockTerm2.scrollLines).toHaveBeenCalledWith(-SCROLL_LINES);
+    expect(mockTerm.scrollLines).not.toHaveBeenCalled();
 
-    expect(received.length).toBe(1);
-    expect(received[0].deltaY).toBe(10); // not clamped
+    el2.container.remove();
   });
 });

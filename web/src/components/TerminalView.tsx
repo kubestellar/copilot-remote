@@ -84,6 +84,10 @@ const termInstances = new Map<string, {
 // This prevents Claude Code / agent CLIs from clearing their screen when tiles rearrange.
 let suppressPtyResize = false;
 
+// When true, wheel events are completely ignored (e.g. during font size changes
+// that trigger fitAddon.fit() which can cause internal scroll jumps).
+let suppressScroll = false;
+
 function getServerUrls() {
   const token = localStorage.getItem('copilot-remote-token') || '';
   const serverUrl = localStorage.getItem('copilot-remote-server') || `${window.location.protocol}//${window.location.hostname}:3001`;
@@ -298,6 +302,8 @@ export function TerminalView({ onBack }: Props) {
     for (const [, inst] of termInstances) {
       inst.term.options.fontSize = fontSize;
     }
+    // Suppress scroll during fit() to prevent font-change-induced rocket scroll
+    suppressScroll = true;
     // Allow PTY resize through so tmux adjusts cols/rows to new font metrics
     requestAnimationFrame(() => {
       for (const [, inst] of termInstances) {
@@ -306,6 +312,8 @@ export function TerminalView({ onBack }: Props) {
           inst.term.refresh(0, inst.term.rows - 1);
         } catch {}
       }
+      // Re-enable scroll after a brief delay to let xterm settle
+      setTimeout(() => { suppressScroll = false; }, 300);
     });
   }, [globalFontSize, tileMode, tabs]);
 
@@ -863,47 +871,38 @@ export function TerminalView({ onBack }: Props) {
     return () => window.removeEventListener('resize', handleResize);
   }, [tileMode]);
 
-  // Prevent macOS trackpad momentum "rocket scroll" while preserving normal
-  // scrollback. We intercept wheel events on terminals, clamp deltaY to a sane
-  // maximum, throttle the rate, then re-dispatch a synthetic event so xterm.js
-  // handles both its own scrollback buffer AND mouse-sequence forwarding to tmux.
+  // Prevent macOS trackpad momentum "rocket scroll". Block ALL wheel events on
+  // terminals and manually call term.scrollLines() with a fixed small step.
+  // This completely eliminates momentum-based scroll flooding to tmux.
   useEffect(() => {
     let lastWheel = 0;
-    const THROTTLE_MS = 80;   // ~12 scroll actions/sec — smooth but prevents momentum flood
-    const MAX_DELTA_Y = 150;  // cap pixel delta to limit momentum extremes
+    const THROTTLE_MS = 100;  // 10 scroll actions/sec max
+    const SCROLL_LINES = 3;   // lines per scroll tick
 
     const handler = (e: WheelEvent) => {
-      // Let our synthetic clamped events pass through to xterm.js
-      if ((e as any).__clampedScroll) return;
-
       const target = e.target as HTMLElement;
       if (!target?.closest?.('.xterm')) return;
 
-      // Block the original (possibly momentum-inflated) event
       e.preventDefault();
       e.stopImmediatePropagation();
+
+      // Skip during font changes / terminal reflow
+      if (suppressScroll) return;
 
       const now = performance.now();
       if (now - lastWheel < THROTTLE_MS) return;
       lastWheel = now;
 
-      // Re-dispatch with clamped deltaY so xterm.js handles scrollback
-      // AND forwards mouse sequences to tmux naturally
-      const clampedDeltaY = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), MAX_DELTA_Y);
-      const synth = new WheelEvent('wheel', {
-        deltaX: e.deltaX,
-        deltaY: -clampedDeltaY,
-        deltaZ: e.deltaZ,
-        deltaMode: e.deltaMode,
-        bubbles: true,
-        cancelable: true,
-        clientX: e.clientX,
-        clientY: e.clientY,
-        screenX: e.screenX,
-        screenY: e.screenY,
-      });
-      Object.defineProperty(synth, '__clampedScroll', { value: true });
-      target.dispatchEvent(synth);
+      // Negate: browser deltaY>0 means "scroll page down" but xterm scrollLines(+)
+      // also moves viewport down. macOS natural scrolling inverts the raw delta,
+      // so we negate to match OS expectations (swipe-up = see older content).
+      const direction = e.deltaY > 0 ? -SCROLL_LINES : SCROLL_LINES;
+      for (const [, inst] of termInstances) {
+        if (inst.container?.contains(target)) {
+          inst.term.scrollLines(direction);
+          break;
+        }
+      }
     };
     document.addEventListener('wheel', handler, { capture: true, passive: false } as any);
     return () => {
