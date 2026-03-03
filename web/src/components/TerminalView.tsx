@@ -819,32 +819,30 @@ export function TerminalView({ onBack }: Props) {
     return () => window.removeEventListener('resize', handleResize);
   }, [tileMode]);
 
-  // Prevent wheel events on single-mode terminal containers from scrolling the page
-  // Must use native addEventListener with { passive: false } to allow preventDefault
-  // Use capture phase + throttle to tame macOS trackpad momentum (rocket scroll)
+  // Intercept wheel events on terminals to prevent macOS trackpad momentum
+  // "rocket scroll". We throttle events in capture phase — blocked events get
+  // preventDefault to stop them, allowed events pass through to xterm.js which
+  // sends mouse escape sequences (needed for tmux scroll mode).
   useEffect(() => {
     let lastWheel = 0;
     const handler = (e: WheelEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target?.closest?.('.xterm')) return;
       const now = performance.now();
-      if (now - lastWheel < 32) { // cap ~30 events/sec — smooth but no rocket scroll
+      if (now - lastWheel < 100) { // 10 events/sec — smooth but no rocket scroll
         e.preventDefault();
         e.stopImmediatePropagation();
         return;
       }
       lastWheel = now;
-      // Let xterm.js handle the event naturally for scrolling
+      // Let this event through to xterm.js naturally — it handles
+      // normal buffer scroll OR sends mouse escape seqs for tmux/alt-screen
     };
-    const attached: HTMLElement[] = [];
-    for (const [, el] of containerRefs.current) {
-      el.addEventListener('wheel', handler, { capture: true, passive: false });
-      attached.push(el);
-    }
+    document.addEventListener('wheel', handler, { capture: true, passive: false } as any);
     return () => {
-      for (const el of attached) {
-        el.removeEventListener('wheel', handler);
-      }
+      document.removeEventListener('wheel', handler, { capture: true } as any);
     };
-  }, [tabs.length, tileActive]);
+  }, []);
 
   // Poll tmux pane titles for intent display (covers titles set before we attached)
   useEffect(() => {
@@ -907,7 +905,6 @@ export function TerminalView({ onBack }: Props) {
     }
 
     let cancelled = false;
-    const wheelHandlers: Array<{ el: HTMLElement; handler: (e: WheelEvent) => void }> = [];
 
     // Auto-set focused tile and sync activeTabId to match
     const checked = tabsRef.current.filter(t => t.checked);
@@ -956,19 +953,7 @@ export function TerminalView({ onBack }: Props) {
           termEl.style.transform = `scale(${scale})`;
         }
 
-        // Wheel throttle for macOS trackpad
-        let lastWheel = 0;
-        const wheelHandler = (e: WheelEvent) => {
-          const now = performance.now();
-          if (now - lastWheel < 32) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            return;
-          }
-          lastWheel = now;
-        };
-        container.addEventListener('wheel', wheelHandler, { capture: true, passive: false });
-        wheelHandlers.push({ el: container, handler: wheelHandler });
+        // Wheel scroll handled by the unified handler above (single + tile modes)
       }
       suppressPtyResize = false;
     };
@@ -982,9 +967,6 @@ export function TerminalView({ onBack }: Props) {
 
     return () => {
       cancelled = true;
-      for (const { el, handler } of wheelHandlers) {
-        el.removeEventListener('wheel', handler);
-      }
     };
   }, [tileMode, fontReady, checkedTabs.length, activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
