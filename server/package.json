@@ -12,6 +12,7 @@
     "postinstall": "chmod +x ../node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.14.1",
     "express": "^5.1.0",
     "node-pty": "^1.1.0",
     "uuid": "^11.1.0",
