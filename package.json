@@ -14,6 +14,9 @@
     "build": "npm run build --workspace=web",
     "start": "npm run start --workspace=server"
   },
+  "overrides": {
+    "serialize-javascript": "^7.0.4"
+  },
   "devDependencies": {
     "concurrently": "^9.1.0"
   },
