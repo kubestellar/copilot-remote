@@ -188,6 +188,8 @@ class TerminalWriter {
   private rafId: number | null = null;
   private syncMode = false;  // DEC 2026 synchronized output active
   private syncBuffer = '';   // buffered data during sync mode
+  private debugFlushCount = 0;  // debug counter
+  private debugLastLogTime = 0; // throttle debug logs
   private watermark = 0;
   private paused = false;
   private onPause: (() => void) | null = null;
@@ -272,11 +274,13 @@ class TerminalWriter {
       this.onPause?.();
     }
 
+    // Detect alternate screen mode (tmux, vim, less, AI tools like Claude Code)
+    const inAlternateScreen = this.term.buffer.active.type === 'alternate';
+
     // Viewport scroll stabilization: xterm.js auto-scrolls to the bottom on
-    // every write. If the user has scrolled up to read history, save the scroll
-    // position and restore it after the write completes to prevent "rocket scroll"
-    // (viewport yanking to the bottom). If user is already at the bottom, let
-    // xterm.js keep auto-following new output.
+    // every write. In alternate screen mode, force scrollTop=0 to prevent
+    // transient scroll jumps during rapid redraws. In normal mode, save/restore
+    // scroll position when the user is reading history.
     const vp = this.getViewport();
     let savedScrollTop = 0;
     let wasAtBottom = true;
@@ -287,9 +291,24 @@ class TerminalWriter {
     }
 
     this.term.write(data, () => {
-      // Restore scroll position — only needed when user was reading history
-      if (vp && !wasAtBottom) {
-        vp.scrollTop = savedScrollTop;
+      if (vp) {
+        if (inAlternateScreen) {
+          // Alternate screen: force scrollTop to 0 — there should be no scrollback,
+          // but xterm.js may transiently create rows during rapid redraws
+          const scrollWasNonZero = vp.scrollTop !== 0;
+          vp.scrollTop = 0;
+          // Debug: log when scroll lock actually corrects a non-zero scrollTop
+          this.debugFlushCount++;
+          const now = performance.now();
+          const DEBUG_LOG_INTERVAL_MS = 2000; // throttle to once per 2s
+          if (now - this.debugLastLogTime > DEBUG_LOG_INTERVAL_MS) {
+            console.debug(`[TerminalWriter] altScreen flush #${this.debugFlushCount}: scrollTop=${scrollWasNonZero ? 'corrected' : '0'}, bytes=${data.length}, scrollHeight=${vp.scrollHeight}, clientHeight=${vp.clientHeight}`);
+            this.debugLastLogTime = now;
+          }
+        } else if (!wasAtBottom) {
+          // Normal mode: restore scroll position when user is reading history
+          vp.scrollTop = savedScrollTop;
+        }
       }
       this.watermark = Math.max(0, this.watermark - data.length);
       if (this.paused && this.watermark < TerminalWriter.LOW_WATER) {
@@ -997,7 +1016,12 @@ export function TerminalView({ onBack }: Props) {
     if (!tileActive) {
       try { inst.fitAddon.fit(); } catch (_err) { /* fit may fail before terminal is fully mounted */ }
     }
-    inst.term.scrollToBottom();
+    // Only scroll to bottom in normal screen mode; alternate screen (tmux, vim,
+    // Claude Code) uses scrollTop=0 enforced by TerminalWriter — calling
+    // scrollToBottom() here would cause rocket scroll.
+    if (inst.term.buffer.active.type !== 'alternate') {
+      inst.term.scrollToBottom();
+    }
     inst.term.focus();
   }, [activeTabId, tileActive, tabs.length, fontReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1118,6 +1142,7 @@ export function TerminalView({ onBack }: Props) {
         : Math.max(MIN_FONT_SIZE, base - 1);
 
       suppressPtyResize = true;
+      suppressScroll = true;
       for (const tab of checked) {
         const container = containerRefs.current.get(tab.id);
         if (!container || !container.isConnected) continue;
@@ -1135,10 +1160,15 @@ export function TerminalView({ onBack }: Props) {
         // Reduce font and fit to tile container — no PTY resize
         inst.term.options.fontSize = tileFontSize;
         try { inst.fitAddon.fit(); } catch {}
-        // Defer scrollToBottom to avoid fighting with rapid terminal output redraws
-        setTimeout(() => inst.term.scrollToBottom(), 50);
+        // Only scroll to bottom in normal screen mode; alternate screen uses
+        // scrollTop=0 enforced by TerminalWriter — scrollToBottom() causes rocket scroll.
+        if (inst.term.buffer.active.type !== 'alternate') {
+          setTimeout(() => inst.term.scrollToBottom(), 50);
+        }
       }
       suppressPtyResize = false;
+      // Re-enable scroll after a brief delay to let xterm settle
+      setTimeout(() => { suppressScroll = false; }, 300);
     };
 
     // Apply after layout settles (two rAFs for grid to be fully rendered)
