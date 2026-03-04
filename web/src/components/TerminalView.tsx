@@ -547,6 +547,8 @@ export const TerminalView = memo(function TerminalView({ onBack }: Props) {
         term.selectAll();
         return false;
       }
+      // Font size: let window keydown handler process Cmd+=/+/-/0
+      if (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0') return false;
       return true;
     });
 
