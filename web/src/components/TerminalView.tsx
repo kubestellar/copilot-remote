@@ -195,8 +195,6 @@ class TerminalWriter {
   private onPause: (() => void) | null = null;
   private onResume: (() => void) | null = null;
   private viewport: HTMLElement | null = null;  // cached .xterm-viewport element
-  private lastFlowChangeTime = 0;  // throttle pause/resume to avoid rapid oscillation
-  private static readonly FLOW_THROTTLE_MS = 100;  // minimum ms between pause↔resume transitions
 
   // Backpressure watermarks (bytes pending in xterm.js write buffer)
   private static readonly HIGH_WATER = 128_000;  // 128KB — pause upstream
@@ -270,12 +268,9 @@ class TerminalWriter {
     this.queue = '';
     this.watermark += data.length;
 
-    // Check if we need to signal backpressure (throttled to avoid rapid oscillation)
-    const now = performance.now();
-    if (!this.paused && this.watermark > TerminalWriter.HIGH_WATER &&
-        now - this.lastFlowChangeTime > TerminalWriter.FLOW_THROTTLE_MS) {
+    // Check if we need to signal backpressure
+    if (!this.paused && this.watermark > TerminalWriter.HIGH_WATER) {
       this.paused = true;
-      this.lastFlowChangeTime = now;
       this.onPause?.();
     }
 
@@ -317,12 +312,8 @@ class TerminalWriter {
       }
       this.watermark = Math.max(0, this.watermark - data.length);
       if (this.paused && this.watermark < TerminalWriter.LOW_WATER) {
-        const now = performance.now();
-        if (now - this.lastFlowChangeTime > TerminalWriter.FLOW_THROTTLE_MS) {
-          this.paused = false;
-          this.lastFlowChangeTime = now;
-          this.onResume?.();
-        }
+        this.paused = false;
+        this.onResume?.();
       }
     });
 
