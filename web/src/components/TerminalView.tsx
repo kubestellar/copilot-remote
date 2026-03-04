@@ -440,8 +440,12 @@ export const TerminalView = memo(function TerminalView({ onBack }: Props) {
   useEffect(() => {
     localStorage.setItem(FONT_SIZE_KEY, String(globalFontSize));
 
-    // In tile mode, derive tile font from the new global size
-    const checkedTabs = tabs.filter(t => t.checked);
+    // In tile mode, derive tile font from the new global size.
+    // Read tabs from ref to avoid depending on the tabs array (which changes
+    // frequently from title polls, status updates, etc.) — that would re-run
+    // this effect and keep suppressScroll=true almost permanently.
+    const currentTabs = tabsRef.current;
+    const checkedTabs = currentTabs.filter(t => t.checked);
     const isTiled = tileMode && checkedTabs.length > 0;
     const fontSize = isTiled
       ? Math.max(MIN_FONT_SIZE, globalFontSize - (checkedTabs.length >= 2 ? 3 : 1))
@@ -463,7 +467,7 @@ export const TerminalView = memo(function TerminalView({ onBack }: Props) {
       // Re-enable scroll after a brief delay to let xterm settle
       setTimeout(() => { suppressScroll = false; }, 300);
     });
-  }, [globalFontSize, tileMode, tabs]);
+  }, [globalFontSize, tileMode]);
 
   // Getter for termInstances (passed to hook to avoid stale closure)
   const getTermInstances = useCallback(() => termInstances, []);
