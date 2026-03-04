@@ -195,6 +195,7 @@ class TerminalWriter {
   private onPause: (() => void) | null = null;
   private onResume: (() => void) | null = null;
   private viewport: HTMLElement | null = null;  // cached .xterm-viewport element
+  private scrollHandler: (() => void) | null = null;  // alt-screen scroll lock handler
 
   // Backpressure watermarks (bytes pending in xterm.js write buffer)
   private static readonly HIGH_WATER = 128_000;  // 128KB — pause upstream
@@ -204,7 +205,23 @@ class TerminalWriter {
   private static readonly SYNC_START = '\x1b[?2026h';
   private static readonly SYNC_END = '\x1b[?2026l';
 
-  constructor(private term: Terminal) {}
+  constructor(private term: Terminal) {
+    // Install a viewport scroll lock: in alternate screen mode, xterm.js v6 may
+    // auto-scroll to the cursor position during async write processing. A persistent
+    // scroll event listener catches this BEFORE the browser paints the next frame,
+    // preventing the "rocket scroll" visual artifact in tile mode.
+    requestAnimationFrame(() => {
+      const vp = this.getViewport();
+      if (vp) {
+        this.scrollHandler = () => {
+          if (this.term.buffer.active.type === 'alternate' && vp.scrollTop !== 0) {
+            vp.scrollTop = 0;
+          }
+        };
+        vp.addEventListener('scroll', this.scrollHandler, { passive: true });
+      }
+    });
+  }
 
   /** Set callbacks for flow control signaling to upstream (WebSocket/PTY) */
   setFlowCallbacks(onPause: () => void, onResume: () => void) {
@@ -274,9 +291,6 @@ class TerminalWriter {
       this.onPause?.();
     }
 
-    // Detect alternate screen mode (tmux, vim, less, AI tools like Claude Code)
-    const inAlternateScreen = this.term.buffer.active.type === 'alternate';
-
     // Viewport scroll stabilization: xterm.js auto-scrolls to the bottom on
     // every write. In alternate screen mode, force scrollTop=0 to prevent
     // transient scroll jumps during rapid redraws. In normal mode, save/restore
@@ -291,8 +305,11 @@ class TerminalWriter {
     }
 
     this.term.write(data, () => {
+      // Re-check alternate screen at callback time — xterm v6 may process writes
+      // asynchronously, and the buffer type could change between enqueue and callback.
+      const altScreenNow = this.term.buffer.active.type === 'alternate';
       if (vp) {
-        if (inAlternateScreen) {
+        if (altScreenNow) {
           // Alternate screen: force scrollTop to 0 — there should be no scrollback,
           // but xterm.js may transiently create rows during rapid redraws
           const scrollWasNonZero = vp.scrollTop !== 0;
@@ -331,6 +348,11 @@ class TerminalWriter {
 
   dispose() {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+    // Remove scroll lock handler
+    if (this.scrollHandler && this.viewport) {
+      this.viewport.removeEventListener('scroll', this.scrollHandler);
+      this.scrollHandler = null;
+    }
     // Flush remaining data synchronously
     if (this.syncBuffer) { this.queue += this.syncBuffer; this.syncBuffer = ''; }
     if (this.queue) { this.term.write(this.queue); this.queue = ''; }
@@ -1167,8 +1189,14 @@ export const TerminalView = memo(function TerminalView({ onBack }: Props) {
         try { inst.fitAddon.fit(); } catch {}
         // Only scroll to bottom in normal screen mode; alternate screen uses
         // scrollTop=0 enforced by TerminalWriter — scrollToBottom() causes rocket scroll.
+        // Re-check buffer type inside timeout to avoid race with screen transitions.
+        const capturedInst = inst;
         if (inst.term.buffer.active.type !== 'alternate') {
-          setTimeout(() => inst.term.scrollToBottom(), 50);
+          setTimeout(() => {
+            if (capturedInst.term.buffer.active.type !== 'alternate') {
+              capturedInst.term.scrollToBottom();
+            }
+          }, 50);
         }
       }
       suppressPtyResize = false;

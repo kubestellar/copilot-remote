@@ -269,3 +269,100 @@ describe('Terminal scroll handler', () => {
     xterm2.remove();
   });
 });
+
+// ── Viewport scroll lock for alternate screen ───────────────────────
+describe('Viewport scroll lock (alternate screen)', () => {
+  /**
+   * Regression test: xterm.js v6 processes writes asynchronously — between
+   * enqueue and the write callback, the browser may paint a frame where
+   * xterm auto-scrolled the viewport to the cursor. A persistent scroll
+   * event listener on .xterm-viewport enforces scrollTop=0 in alternate
+   * screen mode, preventing the "rocket scroll" visual artifact.
+   */
+
+  let viewport: HTMLDivElement;
+  let cleanup: () => void;
+
+  // Minimal mock for the scroll lock handler — mirrors TerminalWriter constructor logic
+  function installScrollLock(
+    vp: HTMLElement,
+    getBufferType: () => string
+  ) {
+    const handler = () => {
+      if (getBufferType() === 'alternate' && vp.scrollTop !== 0) {
+        vp.scrollTop = 0;
+      }
+    };
+    vp.addEventListener('scroll', handler, { passive: true });
+    return () => vp.removeEventListener('scroll', handler);
+  }
+
+  beforeEach(() => {
+    const { viewport: vp } = createXtermElement();
+    viewport = vp;
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    viewport?.closest('.xterm')?.remove();
+  });
+
+  it('should reset scrollTop to 0 when scroll fires in alternate screen', () => {
+    let bufferType = 'alternate';
+    cleanup = installScrollLock(viewport, () => bufferType);
+
+    // Simulate xterm auto-scroll: set scrollTop to non-zero
+    Object.defineProperty(viewport, 'scrollTop', {
+      value: 0,
+      writable: true,
+      configurable: true,
+    });
+    (viewport as any).scrollTop = 150;
+    viewport.dispatchEvent(new Event('scroll'));
+
+    expect(viewport.scrollTop).toBe(0);
+  });
+
+  it('should NOT reset scrollTop in normal screen (allow user scrollback)', () => {
+    let bufferType = 'normal';
+    cleanup = installScrollLock(viewport, () => bufferType);
+
+    Object.defineProperty(viewport, 'scrollTop', {
+      value: 0,
+      writable: true,
+      configurable: true,
+    });
+    (viewport as any).scrollTop = 200;
+    viewport.dispatchEvent(new Event('scroll'));
+
+    // Normal screen: scroll position should be preserved
+    expect(viewport.scrollTop).toBe(200);
+  });
+
+  it('should handle rapid screen transitions without stale scroll corrections', () => {
+    let bufferType = 'alternate';
+    cleanup = installScrollLock(viewport, () => bufferType);
+
+    Object.defineProperty(viewport, 'scrollTop', {
+      value: 0,
+      writable: true,
+      configurable: true,
+    });
+
+    // Alternate screen: should reset
+    (viewport as any).scrollTop = 100;
+    viewport.dispatchEvent(new Event('scroll'));
+    expect(viewport.scrollTop).toBe(0);
+
+    // Switch to normal screen: should preserve
+    bufferType = 'normal';
+    (viewport as any).scrollTop = 300;
+    viewport.dispatchEvent(new Event('scroll'));
+    expect(viewport.scrollTop).toBe(300);
+
+    // Switch back to alternate: should reset again
+    bufferType = 'alternate';
+    viewport.dispatchEvent(new Event('scroll'));
+    expect(viewport.scrollTop).toBe(0);
+  });
+});
