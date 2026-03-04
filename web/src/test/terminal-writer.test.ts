@@ -297,6 +297,47 @@ describe('TerminalWriter', () => {
     expect(writer.isPaused).toBe(false);
   });
 
+  it('should resume immediately without throttle delay (deadlock prevention)', () => {
+    // Regression: a 100ms throttle between pause↔resume caused a permanent
+    // deadlock. If resume was throttled in the write callback, the PTY stayed
+    // paused forever because no new data would arrive to trigger another
+    // callback. This test verifies resume fires immediately after watermark
+    // drops, with no delay.
+    const onPause = vi.fn();
+    const onResume = vi.fn();
+    writer.setFlowCallbacks(onPause, onResume);
+
+    // Trigger pause
+    writer.write('x'.repeat(130_000));
+    flushRAF();
+    expect(writer.isPaused).toBe(true);
+    expect(onPause).toHaveBeenCalledOnce();
+
+    // Immediately process — resume must fire without any time delay
+    term.processAll();
+    expect(onResume).toHaveBeenCalledOnce();
+    expect(writer.isPaused).toBe(false);
+  });
+
+  it('should handle rapid pause/resume cycles without getting stuck', () => {
+    const onPause = vi.fn();
+    const onResume = vi.fn();
+    writer.setFlowCallbacks(onPause, onResume);
+
+    // Simulate 5 rapid pause/resume cycles
+    for (let i = 0; i < 5; i++) {
+      writer.write('x'.repeat(130_000));
+      flushRAF();
+      expect(writer.isPaused).toBe(true);
+
+      term.processAll();
+      expect(writer.isPaused).toBe(false);
+    }
+
+    expect(onPause).toHaveBeenCalledTimes(5);
+    expect(onResume).toHaveBeenCalledTimes(5);
+  });
+
   // ── Dispose ───────────────────────────────────────────────────────────
 
   it('should flush remaining data on dispose', () => {

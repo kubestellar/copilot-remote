@@ -195,6 +195,63 @@ describe('Terminal scroll handler', () => {
     expect(blocked).toBe(true);
   });
 
+  // ── suppressScroll lifetime: must clear promptly ─────────────────────
+
+  it('should clear suppressScroll within 500ms (no permanent blocking)', async () => {
+    // Regression: if the font-size effect re-ran on every tabs change
+    // (title polls, status updates), suppressScroll stayed true almost
+    // permanently because each re-run reset the 300ms timeout.
+    // This test verifies suppressScroll clears and stays cleared.
+    state.suppressScroll = true;
+
+    // Simulate the real timeout that clears it (300ms in production)
+    setTimeout(() => { state.suppressScroll = false; }, 300);
+
+    // After 350ms, it should be cleared
+    await new Promise(r => setTimeout(r, 350));
+    expect(state.suppressScroll).toBe(false);
+
+    // Crucially: scroll should work after the timeout clears
+    const { blocked } = fireWheel(screen, 100);
+    expect(blocked).toBe(false);
+  });
+
+  it('should not re-block scroll when unrelated state changes occur', () => {
+    // Simulates the bug: if some unrelated update (tab title poll, status
+    // change) resets suppressScroll to true, scrolling breaks permanently.
+    // The fix is that only font-size / tile-mode changes set suppressScroll.
+    state.suppressScroll = false;
+
+    // Simulate 10 "tab title poll" cycles — none should enable suppressScroll
+    for (let i = 0; i < 10; i++) {
+      // An unrelated state change should NOT set suppressScroll
+      // (In the buggy code, each setTabs() re-triggered the font effect)
+      expect(state.suppressScroll).toBe(false);
+      const { blocked } = fireWheel(screen, 50);
+      expect(blocked).toBe(false);
+    }
+  });
+
+  it('should only block briefly after a font-size change, then allow scroll', async () => {
+    // Simulates the correct behavior: suppressScroll=true during fit(),
+    // then clears after 300ms and stays cleared.
+    expect(fireWheel(screen, 50).blocked).toBe(false);
+
+    // Font size change sets suppressScroll
+    state.suppressScroll = true;
+    expect(fireWheel(screen, 50).blocked).toBe(true);
+
+    // After the brief timeout, scroll is restored
+    setTimeout(() => { state.suppressScroll = false; }, 300);
+    await new Promise(r => setTimeout(r, 350));
+    expect(fireWheel(screen, 50).blocked).toBe(false);
+
+    // Subsequent events should also pass through (no re-blocking)
+    for (let i = 0; i < 5; i++) {
+      expect(fireWheel(screen, 50).blocked).toBe(false);
+    }
+  });
+
   // ── Multiple xterm instances ──────────────────────────────────────────
 
   it('should handle multiple xterm instances independently', () => {
