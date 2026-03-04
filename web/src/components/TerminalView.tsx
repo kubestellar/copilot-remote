@@ -1151,7 +1151,6 @@ export const TerminalView = memo(function TerminalView({ onBack }: Props) {
         : Math.max(MIN_FONT_SIZE, base - 1);
 
       suppressPtyResize = true;
-      suppressScroll = true;
       for (const tab of checked) {
         const container = containerRefs.current.get(tab.id);
         if (!container || !container.isConnected) continue;
@@ -1176,8 +1175,6 @@ export const TerminalView = memo(function TerminalView({ onBack }: Props) {
         }
       }
       suppressPtyResize = false;
-      // Re-enable scroll after a brief delay to let xterm settle
-      setTimeout(() => { suppressScroll = false; }, 300);
     };
 
     // Apply after layout settles (two rAFs for grid to be fully rendered)
