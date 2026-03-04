@@ -1422,7 +1422,7 @@ export const TerminalView = memo(function TerminalView({ onBack }: Props) {
                   color: isActive ? '#ffffff' : 'fg.default',
                   boxShadow: isActive ? 'inset 0 -3px 0 #58a6ff' : 'none',
                   ':hover': { bg: isActive ? '#1f6feb' : 'canvas.default' },
-                  maxWidth: 500, minWidth: 150, flexShrink: 0,
+                  maxWidth: 'min(500px, 45vw)', minWidth: 'clamp(80px, 25vw, 150px)', flexShrink: 0,
                 }}
                 data-tab-id={tab.id}
                 onClick={handleTabClick}

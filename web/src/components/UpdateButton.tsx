@@ -132,7 +132,7 @@ export function UpdateButton() {
         <Box
           sx={{
             position: 'absolute', top: '100%', right: 0, mt: 1,
-            width: 300, p: 3, borderRadius: 2, zIndex: 100,
+            width: 'min(300px, calc(100vw - 32px))', p: 3, borderRadius: 2, zIndex: 100,
             bg: 'canvas.overlay', border: '1px solid', borderColor: 'border.default',
             boxShadow: 'shadow.large',
           }}
