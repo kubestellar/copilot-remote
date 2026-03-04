@@ -32,6 +32,10 @@ const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_MIME_PREFIX = 'image/';
 /** Maximum sanitized filename length */
 const MAX_FILENAME_LENGTH = 255;
+/** Interval for batching PTY output before sending over WebSocket (ms) */
+const PTY_BATCH_INTERVAL_MS = 16;
+/** Max bytes to accumulate before force-flushing a PTY batch */
+const PTY_BATCH_MAX_BYTES = 64 * 1024;
 
 const app = express();
 const server = createServer(app);
@@ -662,9 +666,35 @@ termWss.on('connection', (ws, req) => {
     return;
   }
 
-  // Forward PTY output → WebSocket (with backpressure support)
+  // Forward PTY output → WebSocket (with backpressure + output batching)
+  // Batching coalesces ~4,000 PTY events/s into ~60 WebSocket messages/s (one per 16ms frame)
+  // to prevent "rocket scroll" caused by AI tools redrawing the screen on every output chunk.
   let ptyPaused = false;
   let pauseBuffer = '';  // buffer data arriving between pause signal and PTY actually stopping
+  let batchBuffer = '';  // accumulates PTY data within a batch interval
+  let batchTimer: ReturnType<typeof setTimeout> | null = null;
+  let batchFlushCount = 0;  // debug counter for batch flushes
+  let batchDataEvents = 0;  // debug counter for raw PTY events between flushes
+
+  /** Flush accumulated PTY data to the WebSocket */
+  const flushBatch = () => {
+    batchTimer = null;
+    if (!batchBuffer || ws.readyState !== WebSocket.OPEN) {
+      batchBuffer = '';
+      batchDataEvents = 0;
+      return;
+    }
+    batchFlushCount++;
+    const coalesced = batchDataEvents;
+    const bytes = batchBuffer.length;
+    if (coalesced > 1) {
+      console.debug(`[PTY-batch] ${termId}: flush #${batchFlushCount} — ${coalesced} events coalesced, ${bytes} bytes`);
+    }
+    ws.send(batchBuffer);
+    batchBuffer = '';
+    batchDataEvents = 0;
+  };
+
   const onData = (id: string, data: string) => {
     if (id !== termId || ws.readyState !== WebSocket.OPEN) return;
     if (ptyPaused) {
@@ -673,7 +703,18 @@ termWss.on('connection', (ws, req) => {
       pauseBuffer += data;
       return;
     }
-    ws.send(data);
+    batchBuffer += data;
+    batchDataEvents++;
+    // Force flush if buffer is large (prevents unbounded memory growth)
+    if (batchBuffer.length >= PTY_BATCH_MAX_BYTES) {
+      if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+      flushBatch();
+      return;
+    }
+    // Start a timer if one isn't already running
+    if (!batchTimer) {
+      batchTimer = setTimeout(flushBatch, PTY_BATCH_INTERVAL_MS);
+    }
   };
   const onExit = (id: string, exitCode: number) => {
     if (id === termId && ws.readyState === WebSocket.OPEN) {
@@ -713,15 +754,21 @@ termWss.on('connection', (ws, req) => {
       // so the kernel buffer fills and the writing process naturally throttles
       if (parsed.type === 'pause') {
         ptyPaused = true;
+        // Flush any pending batch before pausing
+        if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+        if (batchBuffer) flushBatch();
         terminalManager.pause(termId);
         return;
       }
       if (parsed.type === 'resume') {
         ptyPaused = false;
-        // Flush any data that was buffered during the pause
         if (pauseBuffer) {
-          ws.send(pauseBuffer);
+          // Feed pause buffer through the batcher (not direct send)
+          batchBuffer += pauseBuffer;
           pauseBuffer = '';
+          if (!batchTimer) {
+            batchTimer = setTimeout(flushBatch, PTY_BATCH_INTERVAL_MS);
+          }
         }
         terminalManager.resume(termId);
         return;
@@ -735,12 +782,22 @@ termWss.on('connection', (ws, req) => {
         return;
       }
     } catch (_parseErr) {
-      // Not JSON — raw terminal input
+      // Not JSON — raw terminal input.
+      // Guard: if rapid pause/resume messages got concatenated into one frame,
+      // JSON.parse fails but the string is still control data — never write it to PTY.
+      if (msg.includes('"type":"pause"') || msg.includes('"type":"resume"') ||
+          msg.includes('"type":"resize"') || msg.includes('"type":"watch-prompt"') ||
+          msg.includes('"type":"unwatch-prompt"')) {
+        return;
+      }
     }
     terminalManager.write(termId, msg);
   });
 
   ws.on('close', () => {
+    // Clean up batch timer and discard pending data
+    if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+    batchBuffer = '';
     // Resume PTY if it was paused — prevents stale pause on reconnect
     if (ptyPaused) {
       terminalManager.resume(termId);
